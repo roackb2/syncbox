@@ -3,6 +3,7 @@ package syncbox
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 )
@@ -23,10 +24,10 @@ type Hub struct {
 func NewHub(conn *net.TCPConn, eHandler ErrorHandler) *Hub {
 	hub := &Hub{
 		Conn:             conn,
-		InboundRequest:   make(chan []byte),
-		OutboundRequest:  make(chan []byte),
-		InboundResponse:  make(chan []byte),
-		OutboundResponse: make(chan []byte),
+		InboundRequest:   make(chan []byte, 10),
+		OutboundRequest:  make(chan []byte, 10),
+		InboundResponse:  make(chan []byte, 10),
+		OutboundResponse: make(chan []byte, 10),
 		ErrorHandler:     eHandler,
 		Logger:           NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogDebug, GlobalLogDebug),
 	}
@@ -44,12 +45,18 @@ func (hub *Hub) waitInbound() {
 	for {
 		reader := bufio.NewReader(hub.Conn)
 		message, err := reader.ReadBytes(ByteDelim)
+		hub.LogDebug("message: %v\n", string(message))
+		if len(message) > 0 {
+			message = message[0 : len(message)-1]
+		}
+
 		if err != nil {
 			if err == io.EOF {
 				hub.LogDebug("peer socket closed\n")
 				hub.Conn.Close()
 				return
 			}
+			hub.LogDebug("error in waitInbound: %v\n", err)
 			hub.ErrorHandler(err)
 			continue
 		}
@@ -64,7 +71,7 @@ func (hub *Hub) waitInbound() {
 		case ResponsePrefix:
 			hub.InboundResponse <- message[1:len(message)]
 		default:
-			hub.ErrorHandler(ErrorUnknownRequestType)
+			hub.ErrorHandler(errors.New("unknown message type: " + string(message[0])))
 			continue
 		}
 	}
@@ -76,16 +83,22 @@ func (hub *Hub) waitOutbound() {
 		case reqBytes := <-hub.OutboundRequest:
 			reqBytes = append(reqBytes, ByteDelim)
 			data := append([]byte{byte(RequestPrefix)}, reqBytes...)
+			// time.Sleep(time.Second)
+			// hub.LogDebug("outbound request: %v\n", string(data))
 			_, err := (*hub.Conn).Write(data)
 			if err != nil {
+				hub.LogDebug("error in waitOutbound: %v\n", err)
 				hub.ErrorHandler(err)
 				continue
 			}
 		case resBytes := <-hub.OutboundResponse:
 			resBytes = append(resBytes, ByteDelim)
 			data := append([]byte{byte(ResponsePrefix)}, resBytes...)
+			// time.Sleep(time.Second)
+			// hub.LogDebug("outbound response: %v\n", string(data))
 			_, err := (*hub.Conn).Write(data)
 			if err != nil {
+				hub.LogDebug("error in waitOutbound: %v\n", err)
 				hub.ErrorHandler(err)
 				continue
 			}
@@ -179,8 +192,7 @@ func (hub *Hub) SendIdentityRequest(username string) (*Response, error) {
 // SendDigestRequest sends a request with data type file tree digest
 func (hub *Hub) SendDigestRequest(username string, dir *Dir) (*Response, error) {
 	dReq := DigestRequest{
-		Username: username,
-		Dir:      dir,
+		Dir: dir,
 	}
 	dReqJSON, err := json.Marshal(dReq)
 	if err != nil {
@@ -188,6 +200,7 @@ func (hub *Hub) SendDigestRequest(username string, dir *Dir) (*Response, error) 
 		return nil, err
 	}
 	req := &Request{
+		Username: username,
 		DataType: TypeDigest,
 		Data:     dReqJSON,
 	}
@@ -200,7 +213,7 @@ func (hub *Hub) SendDigestRequest(username string, dir *Dir) (*Response, error) 
 }
 
 // SendSyncRequest sends a request of data type file operation request
-func (hub *Hub) SendSyncRequest(action string, file *File) (*Response, error) {
+func (hub *Hub) SendSyncRequest(username string, action string, file *File) (*Response, error) {
 	sReq := SyncRequest{
 		Action: action,
 		File:   file,
@@ -211,6 +224,7 @@ func (hub *Hub) SendSyncRequest(action string, file *File) (*Response, error) {
 		return nil, err
 	}
 	req := &Request{
+		Username: username,
 		DataType: TypeSyncRequest,
 		Data:     sReqJSON,
 	}
@@ -223,7 +237,7 @@ func (hub *Hub) SendSyncRequest(action string, file *File) (*Response, error) {
 }
 
 // SendFileRequest sends a request of data type of file content
-func (hub *Hub) SendFileRequest(file *File, content []byte) (*Response, error) {
+func (hub *Hub) SendFileRequest(username string, file *File, content []byte) (*Response, error) {
 	fReq := FileRequest{
 		File:    file,
 		Content: content,
@@ -234,6 +248,7 @@ func (hub *Hub) SendFileRequest(file *File, content []byte) (*Response, error) {
 		return nil, err
 	}
 	req := &Request{
+		Username: username,
 		DataType: TypeFile,
 		Data:     fReqJSON,
 	}

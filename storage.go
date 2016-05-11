@@ -1,6 +1,9 @@
 package syncbox
 
 import (
+	"bytes"
+	"encoding/binary"
+	"io/ioutil"
 	"os"
 	"strings"
 
@@ -83,6 +86,27 @@ func (storage *Storage) DeleteObject(bucketName string, objName string) error {
 	return nil
 }
 
+// GetObject gets object from S3
+func (storage *Storage) GetObject(bucketName string, objName string) ([]byte, error) {
+	bucketName = S3BucketPrefix + bucketName
+	params := &s3.GetObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(objName),
+	}
+
+	resp, err := storage.Svc.GetObject(params)
+	if err != nil {
+		return nil, err
+	}
+
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return respBytes, nil
+}
+
 // Download pull the object from S3
 func (storage *Storage) Download(path string, bucketName string, objName string) error {
 	bucketName = S3BucketPrefix + bucketName
@@ -106,4 +130,11 @@ func (storage *Storage) Download(path string, bucketName string, objName string)
 
 	storage.Logger.LogDebug("Downloaded file %v: %v bytes\n", file.Name(), numBytes)
 	return nil
+}
+
+// ReadInt64 convert bytes to little-endian encoded int
+func ReadInt64(data []byte) (ret int64) {
+	buf := bytes.NewBuffer(data)
+	binary.Read(buf, binary.LittleEndian, &ret)
+	return
 }

@@ -34,6 +34,7 @@ type Object struct {
 	Name            string      `json:"name"`
 	Size            int64       `json:"size"`
 	ContentChecksum Checksum    `json:"contentChecksum"`
+	Path            string      `json:"path"`
 	walked          bool
 }
 
@@ -50,7 +51,7 @@ type File struct {
 }
 
 // NewObject instantiate Object
-func NewObject(info os.FileInfo) *Object {
+func NewObject(info os.FileInfo, path string) *Object {
 	return &Object{
 		IsDir:           info.IsDir(),
 		ModTime:         info.ModTime(),
@@ -58,23 +59,24 @@ func NewObject(info os.FileInfo) *Object {
 		Name:            info.Name(),
 		Size:            info.Size(),
 		ContentChecksum: Checksum{},
+		Path:            path,
 		walked:          false,
 	}
 }
 
 // NewDir instantiate Dir
-func NewDir(info os.FileInfo) *Dir {
+func NewDir(info os.FileInfo, path string) *Dir {
 	return &Dir{
-		Object: NewObject(info),
+		Object: NewObject(info, path),
 		Files:  make(Files),
 		Dirs:   make(Dirs),
 	}
 }
 
 // NewFile instantiate File
-func NewFile(info os.FileInfo) *File {
+func NewFile(info os.FileInfo, path string) *File {
 	return &File{
-		Object: NewObject(info),
+		Object: NewObject(info, path),
 	}
 }
 
@@ -92,7 +94,8 @@ func (f *File) String() string {
 
 func (o *Object) toString(depth int) string {
 	prefix := strings.Repeat(indent, depth)
-	str := fmt.Sprintf("%vIsDir: %v\n", prefix, o.IsDir)
+	str := fmt.Sprintf("%vPath: %v\n", prefix, o.Path)
+	str += fmt.Sprintf("%vIsDir: %v\n", prefix, o.IsDir)
 	str += fmt.Sprintf("%vModTime: %v\n", prefix, o.ModTime)
 	str += fmt.Sprintf("%vMode: %v\n", prefix, o.Mode)
 	str += fmt.Sprintf("%vName: %v\n", prefix, o.Name)
@@ -198,7 +201,7 @@ func Build(path string) (*Dir, Checksum, error) {
 	if err != nil {
 		return parentDir, totalChecksum, err
 	}
-	parentDir = NewDir(parentDirInfo)
+	parentDir = NewDir(parentDirInfo, path)
 
 	digest := md5.New()
 	infos, err := ioutil.ReadDir(path)
@@ -219,7 +222,7 @@ func Build(path string) (*Dir, Checksum, error) {
 				return parentDir, totalChecksum, err
 			}
 			checksum := md5.Sum(content)
-			file := NewFile(info)
+			file := NewFile(info, path+"/"+info.Name())
 			file.ContentChecksum = checksum
 			parentDir.Files[checksum] = file
 			digest.Write(checksum[:])

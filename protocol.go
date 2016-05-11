@@ -10,8 +10,10 @@ const (
 	RequestPrefix  = 'q'
 	ResponsePrefix = 's'
 
-	ByteDelim   = '\n'
-	StringDelim = "\n"
+	PacketByteSize = 1024
+
+	ByteDelim   = byte(4)
+	StringDelim = string(ByteDelim)
 
 	TypeIdentity    = "IDENTITY"
 	TypeDigest      = "DIGEST"
@@ -23,10 +25,13 @@ const (
 
 	MessageAccept = "ACCEPT"
 	MessageDeny   = "DENY"
+
+	SyncboxServerUsernam = "SYNCBOX-SERVER"
 )
 
 // Request structure for request
 type Request struct {
+	Username string
 	DataType string
 	Data     []byte
 }
@@ -45,8 +50,7 @@ type IdentityRequest struct {
 
 // DigestRequest is the Request data type of a file tree digest
 type DigestRequest struct {
-	Username string
-	Dir      *Dir
+	Dir *Dir
 }
 
 // SyncRequest is the Request data type of a file CRUD request

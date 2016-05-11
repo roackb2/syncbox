@@ -138,10 +138,28 @@ func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub) error 
 	if err := json.Unmarshal(data, &sReq); err != nil {
 		return err
 	}
-	return hub.SendResponse(&syncbox.Response{
-		Status:  syncbox.StatusOK,
-		Message: syncbox.MessageAccept,
-	})
+	switch sReq.Action {
+	case syncbox.ActionGet:
+		path := sReq.File.Path
+		fileBytes, err := ioutil.ReadFile(path)
+		if err != nil {
+			client.LogDebug("error reading file: %v\n", err)
+			return err
+		}
+		if err := hub.SendResponse(&syncbox.Response{
+			Status:  syncbox.StatusOK,
+			Message: syncbox.MessageAccept,
+		}); err != nil {
+			return err
+		}
+		res, err := hub.SendFileRequest(client.Username, sReq.File, fileBytes)
+		if err != nil {
+			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
+			return nil
+		}
+		client.LogDebug("response of SendFileRequest:\n%v\n", res)
+	}
+	return nil
 }
 
 // ProcessFile implements the ConnectionHandler interface
@@ -183,6 +201,7 @@ func (client *Client) Scan() error {
 		client.LogError("error on scanning: %v\n", err)
 		return err
 	}
+	// client.LogDebug("new dir:\n%v\n", client.NewDir)
 	client.LogInfo("scanning files\nold dir checksum: %v\nnew dir checksum: %v\n", client.OldDir.ContentChecksum, client.NewDir.ContentChecksum)
 
 	if hasOldDigest && client.OldDir.ContentChecksum == client.NewDir.ContentChecksum {

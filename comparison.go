@@ -3,7 +3,7 @@ package syncbox
 // Compare should compare to directories and let syncer to deal with the file tree difference.
 // This function assumes values of walked of all nodes in dirs are false.
 // The caller should give empty string to the path variable
-func Compare(path string, oldDir *Dir, newDir *Dir, syncer *Syncer) error {
+func Compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) error {
 	if oldDir.ContentChecksum == newDir.ContentChecksum {
 		return nil
 	}
@@ -13,12 +13,12 @@ func Compare(path string, oldDir *Dir, newDir *Dir, syncer *Syncer) error {
 		targetDir, exists := newDir.Dirs[checksum]
 		if exists {
 			targetDir.walked = true
-			err := Compare(path, dir, targetDir, syncer)
+			err := Compare(path, dir, targetDir, syncer, hub)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := (*syncer).DeleteDir(path, dir) //walkSubDir(dir, handleRemovedFile)
+			err := syncer.DeleteDir(path, dir, hub) //walkSubDir(dir, handleRemovedFile)
 			if err != nil {
 				return err
 			}
@@ -30,7 +30,7 @@ func Compare(path string, oldDir *Dir, newDir *Dir, syncer *Syncer) error {
 		if dir.walked {
 			continue
 		}
-		err := (*syncer).AddDir(path, dir) //walkSubDir(dir, handleNewFile)
+		err := syncer.AddDir(path, dir, hub) //walkSubDir(dir, handleNewFile)
 		if err != nil {
 			return err
 		}
@@ -41,7 +41,7 @@ func Compare(path string, oldDir *Dir, newDir *Dir, syncer *Syncer) error {
 			targetFile.walked = true
 			continue
 		} else {
-			err := (*syncer).DeleteFile(path, file)
+			err := syncer.DeleteFile(path, file, hub)
 			if err != nil {
 				return err
 			}
@@ -51,7 +51,7 @@ func Compare(path string, oldDir *Dir, newDir *Dir, syncer *Syncer) error {
 		if file.walked {
 			continue
 		}
-		err := (*syncer).AddFile(path, file)
+		err := syncer.AddFile(path, file, hub)
 		if err != nil {
 			return err
 		}
