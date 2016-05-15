@@ -106,79 +106,92 @@ func (client *Client) HandleError(err error) {
 }
 
 // ProcessIdentity implements the ConnectionHandler interface
-func (client *Client) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub) error {
+func (client *Client) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	iReq := syncbox.IdentityRequest{}
 	if err := json.Unmarshal(data, &iReq); err != nil {
-		return err
+		client.LogDebug("error on Unmarshal in ProcessIdentity: %v\n", err)
+		eHandler(err)
 	}
-	client.LogDebug("client ProcessIdentity called, req: %v\n", iReq)
-	return hub.SendResponse(&syncbox.Response{
+	// client.LogDebug("client ProcessIdentity called, req: %v\n", iReq)
+	if err := hub.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
-	})
+	}); err != nil {
+		client.LogDebug("error on SendResponse in ProcessIdentity: %v\n", err)
+		eHandler(err)
+	}
 }
 
 // ProcessDigest implements the ConnectionHandler interface
-func (client *Client) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub) error {
+func (client *Client) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	dReq := syncbox.DigestRequest{}
 	if err := json.Unmarshal(data, &dReq); err != nil {
-		return err
+		client.LogDebug("error on Unmarshal in ProcessDigest: %v\n", err)
+		eHandler(err)
 	}
-	client.LogDebug("client ProcessDigest called, req: %v\n", dReq)
-	return hub.SendResponse(&syncbox.Response{
+	// client.LogDebug("client ProcessDigest called, req: %v\n", dReq)
+	if err := hub.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
-	})
+	}); err != nil {
+		client.LogDebug("error on SendResponse in ProcessDigest: %v\n", err)
+		eHandler(err)
+	}
 }
 
 // ProcessSync implements the ConnectionHandler interface
-func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub) error {
+func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	sReq := syncbox.SyncRequest{}
 	if err := json.Unmarshal(data, &sReq); err != nil {
-		return err
+		client.LogDebug("error on Unmarshal in ProcessSync: %v\n", err)
+		eHandler(err)
 	}
-	client.LogDebug("client ProcessSync called, req: %v\n", sReq)
+	// client.LogDebug("client ProcessSync called, req: %v\n", sReq)
 	switch sReq.Action {
 	case syncbox.ActionGet:
 		path := sReq.File.Path
 		fileBytes, err := ioutil.ReadFile(path)
 		if err != nil {
 			client.LogDebug("error reading file: %v\n", err)
-			return err
+			eHandler(err)
 		}
 		if err := hub.SendResponse(&syncbox.Response{
 			Status:  syncbox.StatusOK,
 			Message: syncbox.MessageAccept,
 		}); err != nil {
-			return err
+			client.LogDebug("error on SendResponse in ProcessSync: %v\n", err)
+			eHandler(err)
 		}
 		// client.LogDebug("before SendFileRequest")
 		res, err := hub.SendFileRequest(client.Username, sReq.File, fileBytes)
 		// client.LogDebug("response of SendFileRequest:\n%v\n", res)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
-			return err
+			eHandler(err)
 		}
 		client.LogDebug("response of SendFileRequest:\n%v\n", res)
 	}
-	return nil
 }
 
 // ProcessFile implements the ConnectionHandler interface
-func (client *Client) ProcessFile(req *syncbox.Request, hub *syncbox.Hub) error {
+func (client *Client) ProcessFile(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	dReq := syncbox.FileRequest{}
 	if err := json.Unmarshal(data, &dReq); err != nil {
-		return err
+		client.LogDebug("error on Unmarshal in ProcessFile: %v\n", err)
+		eHandler(err)
 	}
-	client.LogDebug("client ProcessFile called, req: %v\n", dReq)
-	return hub.SendResponse(&syncbox.Response{
+	// client.LogDebug("client ProcessFile called, req: %v\n", dReq)
+	if err := hub.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
-	})
+	}); err != nil {
+		client.LogDebug("error on SendResponse in ProcessFile: %v\n", err)
+		eHandler(err)
+	}
 }
 
 // Scan through the target, write digest file on disk and send to server
@@ -220,7 +233,7 @@ func (client *Client) Scan() error {
 		return err
 	}
 
-	client.LogInfo("sending digest request to server")
+	// client.LogInfo("sending digest request to server")
 	res, err := client.ClientConnector.Hub.SendDigestRequest(client.Username, client.NewDir)
 	if err != nil {
 		client.LogError("error on send: %v\n", err)

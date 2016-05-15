@@ -49,10 +49,10 @@ type ClientConnector struct {
 type ConnectionHandler interface {
 	HandleRequest(*Hub) error
 	HandleError(error)
-	ProcessIdentity(*Request, *Hub) error
-	ProcessDigest(*Request, *Hub) error
-	ProcessSync(*Request, *Hub) error
-	ProcessFile(*Request, *Hub) error
+	ProcessIdentity(*Request, *Hub, ErrorHandler)
+	ProcessDigest(*Request, *Hub, ErrorHandler)
+	ProcessSync(*Request, *Hub, ErrorHandler)
+	ProcessFile(*Request, *Hub, ErrorHandler)
 	LogInfo(string, ...interface{})
 	LogDebug(string, ...interface{})
 	LogError(string, ...interface{})
@@ -172,21 +172,13 @@ func HandleRequest(hub *Hub, handler ConnectionHandler) error {
 		handler.LogDebug("request data type: %v\n", req.DataType)
 		switch req.DataType {
 		case TypeIdentity:
-			if err := handler.ProcessIdentity(req, hub); err != nil {
-				return err
-			}
+			go handler.ProcessIdentity(req, hub, handler.HandleError)
 		case TypeDigest:
-			if err := handler.ProcessDigest(req, hub); err != nil {
-				return err
-			}
+			go handler.ProcessDigest(req, hub, handler.HandleError)
 		case TypeSyncRequest:
-			if err := handler.ProcessSync(req, hub); err != nil {
-				return err
-			}
+			go handler.ProcessSync(req, hub, handler.HandleError)
 		case TypeFile:
-			if err := handler.ProcessFile(req, hub); err != nil {
-				return err
-			}
+			go handler.ProcessFile(req, hub, handler.HandleError)
 		default:
 			handler.LogDebug("data type: %v\n", req.DataType)
 			return ErrorUnknownRequestType

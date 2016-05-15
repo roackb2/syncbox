@@ -21,7 +21,7 @@ sb_db_database = $(shell echo $$SB_DB_DATABASE)
 
 git-merge-dev:
 	git add -A
-	git commit8
+	git commit
 	git checkout master
 	git merge dev
 	git push
