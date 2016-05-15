@@ -16,7 +16,7 @@ import (
 // constants about scan
 const (
 	MaxScanCount = math.MaxInt32
-	ScanPeriod   = 2 * time.Second
+	ScanPeriod   = 4 * time.Second
 )
 
 func main() {
@@ -112,6 +112,7 @@ func (client *Client) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub) er
 	if err := json.Unmarshal(data, &iReq); err != nil {
 		return err
 	}
+	client.LogDebug("client ProcessIdentity called, req: %v\n", iReq)
 	return hub.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
@@ -125,6 +126,7 @@ func (client *Client) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub) erro
 	if err := json.Unmarshal(data, &dReq); err != nil {
 		return err
 	}
+	client.LogDebug("client ProcessDigest called, req: %v\n", dReq)
 	return hub.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
@@ -138,6 +140,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub) error 
 	if err := json.Unmarshal(data, &sReq); err != nil {
 		return err
 	}
+	client.LogDebug("client ProcessSync called, req: %v\n", sReq)
 	switch sReq.Action {
 	case syncbox.ActionGet:
 		path := sReq.File.Path
@@ -152,10 +155,12 @@ func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub) error 
 		}); err != nil {
 			return err
 		}
+		// client.LogDebug("before SendFileRequest")
 		res, err := hub.SendFileRequest(client.Username, sReq.File, fileBytes)
+		// client.LogDebug("response of SendFileRequest:\n%v\n", res)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
-			return nil
+			return err
 		}
 		client.LogDebug("response of SendFileRequest:\n%v\n", res)
 	}
@@ -169,6 +174,7 @@ func (client *Client) ProcessFile(req *syncbox.Request, hub *syncbox.Hub) error 
 	if err := json.Unmarshal(data, &dReq); err != nil {
 		return err
 	}
+	client.LogDebug("client ProcessFile called, req: %v\n", dReq)
 	return hub.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
@@ -221,7 +227,7 @@ func (client *Client) Scan() error {
 		return err
 	}
 
-	client.LogInfo("response: \n%v\n", res)
+	client.LogInfo("response of SendDigestRequest: \n%v\n", res)
 	return nil
 }
 

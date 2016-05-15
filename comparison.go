@@ -4,6 +4,13 @@ package syncbox
 // This function assumes values of walked of all nodes in dirs are false.
 // The caller should give empty string to the path variable
 func Compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) error {
+	err := compare(path, oldDir, newDir, syncer, hub)
+	oldDir.ResetWalked()
+	newDir.ResetWalked()
+	return err
+}
+
+func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) error {
 	if oldDir.ContentChecksum == newDir.ContentChecksum {
 		return nil
 	}

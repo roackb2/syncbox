@@ -7,4 +7,5 @@ var (
 	ErrorEmptyContent       = errors.New("empty content")
 	ErrorUnknownRequestType = errors.New("unknown request type")
 	ErrorPeerSocketClosed   = errors.New("peer socket closed")
+	ErrorExceedsAddrLength  = errors.New("exceeds address length")
 )

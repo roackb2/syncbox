@@ -15,6 +15,7 @@ const (
 	indent         = "\t" // Constants about files
 	DigestFileName = ".sb-digest.json"
 	TestDir        = "/test-target"
+	DsStore        = ".DS_Store"
 )
 
 // Checksum alias [16]byte to Checksum
@@ -216,7 +217,7 @@ func Build(path string) (*Dir, Checksum, error) {
 			}
 			parentDir.Dirs[checksum] = dir
 			digest.Write(checksum[:])
-		} else if info.Name() != DigestFileName {
+		} else if shouldConsiderFile(info.Name()) {
 			content, err := ioutil.ReadFile(path + "/" + info.Name())
 			if err != nil {
 				return parentDir, totalChecksum, err
@@ -231,4 +232,8 @@ func Build(path string) (*Dir, Checksum, error) {
 		parentDir.ContentChecksum = totalChecksum
 	}
 	return parentDir, totalChecksum, nil
+}
+
+func shouldConsiderFile(name string) bool {
+	return name != DigestFileName && name != DsStore
 }

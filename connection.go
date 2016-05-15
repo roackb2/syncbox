@@ -169,6 +169,7 @@ func HandleRequest(hub *Hub, handler ConnectionHandler) error {
 			handler.LogError("error on receiving message: %v\n", err)
 			continue
 		}
+		handler.LogDebug("request data type: %v\n", req.DataType)
 		switch req.DataType {
 		case TypeIdentity:
 			if err := handler.ProcessIdentity(req, hub); err != nil {

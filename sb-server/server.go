@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/roackb2/syncbox"
 )
@@ -79,6 +78,7 @@ func (server *Server) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub) er
 	if err := json.Unmarshal(data, &iReq); err != nil {
 		return err
 	}
+	server.LogDebug("server ProcessIdentity called, req: %v\n", iReq)
 	return hub.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
@@ -92,6 +92,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub) erro
 	if err := json.Unmarshal(data, &dReq); err != nil {
 		return err
 	}
+	server.LogDebug("server ProcessDigest called, req: %v\n", dReq)
 	// server.LogDebug("reborned dir: \n%v\n", dReq.Dir)
 
 	// create a bucket for the user, if not exists
@@ -99,21 +100,13 @@ func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub) erro
 	if err != nil {
 		server.LogDebug("error on creating bucket: %v\n", err)
 		return err
-		// return hub.SendResponse(&syncbox.Response{
-		// 	Status:  syncbox.StatusBad,
-		// 	Message: syncbox.MessageDeny,
-		// })
 	}
 
 	// reborn the directory of the request
-	dirBytes, err := json.Marshal(dReq.Dir)
+	_, err = json.Marshal(dReq.Dir)
 	if err != nil {
 		server.LogDebug("error marshal dir: %v\n", err)
 		return err
-		// return hub.SendResponse(&syncbox.Response{
-		// 	Status:  syncbox.StatusBad,
-		// 	Message: syncbox.MessageDeny,
-		// })
 	}
 	// server.LogDebug("dir bytes: %v\n", dirBytes)
 
@@ -122,10 +115,6 @@ func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub) erro
 	if err != nil {
 		server.LogDebug("error on GetObject in ProcessDigest: %v\n", err)
 		return err
-		// return hub.SendResponse(&syncbox.Response{
-		// 	Status:  syncbox.StatusBad,
-		// 	Message: syncbox.MessageDeny,
-		// })
 	}
 	// server.LogDebug("old digest bytes: %v\n", oldDigestBytes)
 
@@ -134,10 +123,6 @@ func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub) erro
 	if err := json.Unmarshal(oldDigestBytes, oldDir); err != nil {
 		server.LogDebug("error on Unmarshal in ProcessDigest: %v\n", err)
 		return err
-		// return hub.SendResponse(&syncbox.Response{
-		// 	Status:  syncbox.StatusBad,
-		// 	Message: syncbox.MessageDeny,
-		// })
 	}
 	// server.LogDebug("old dir: %v\n", oldDir)
 
@@ -150,27 +135,17 @@ func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub) erro
 		return err
 	}
 
-	time.Sleep(time.Second)
-
 	// compare the server side and client side directory, and sync them
 	if err := syncbox.Compare("", oldDir, dReq.Dir, server, hub); err != nil {
 		server.LogDebug("error on Compare in ProcessDigest: %v\n", err)
 		return err
-		// return hub.SendResponse(&syncbox.Response{
-		// 	Status:  syncbox.StatusBad,
-		// 	Message: syncbox.MessageDeny,
-		// })
 	}
 	// server.LogDebug("finish Compare")
-
-	// put the digest file to S3
-	if err := server.Storage.CreateObject(req.Username, syncbox.DigestFileName, string(dirBytes)); err != nil {
-		server.LogError("error creating object: %v\n", err)
-		return hub.SendResponse(&syncbox.Response{
-			Status:  syncbox.StatusBad,
-			Message: syncbox.MessageDeny,
-		})
-	}
+	//
+	// // put the digest file to S3
+	// if err := server.Storage.CreateObject(req.Username, syncbox.DigestFileName, string(dirBytes)); err != nil {
+	// 	server.LogError("error creating object: %v\n", err)
+	// }
 
 	return nil
 }
@@ -182,6 +157,7 @@ func (server *Server) ProcessSync(req *syncbox.Request, hub *syncbox.Hub) error 
 	if err := json.Unmarshal(data, &sReq); err != nil {
 		return err
 	}
+	server.LogDebug("server ProcessSync called, req: %v\n", sReq)
 	return hub.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
@@ -196,10 +172,12 @@ func (server *Server) ProcessFile(req *syncbox.Request, hub *syncbox.Hub) error 
 		server.LogDebug("error Unmarshal data in ProcessFile: %v\n", err)
 		return err
 	}
+	server.LogDebug("server ProcessFile called, req: %v\n", dReq)
 
-	filenmae := strconv.FormatInt(syncbox.ReadInt64(dReq.File.ContentChecksum[:]), 10)
+	filename := strconv.FormatInt(syncbox.ReadInt64(dReq.File.ContentChecksum[:]), 10)
 	content := string(dReq.Content)
-	if err := server.Storage.CreateObject(req.Username, filenmae, content); err != nil {
+	server.LogDebug("filename: %v\ncontent: %v\n", filename, content)
+	if err := server.Storage.CreateObject(req.Username, filename, content); err != nil {
 		server.LogDebug("error on CreateObject in ProcessFile: %v\n", err)
 		return err
 	}
@@ -213,12 +191,13 @@ func (server *Server) ProcessFile(req *syncbox.Request, hub *syncbox.Hub) error 
 // AddFile implements the Syncer interface
 func (server *Server) AddFile(path string, file *syncbox.File, hub *syncbox.Hub) error {
 	// TODO: should send a FileRequest to client to get file content, and save to S3
+	server.LogDebug("server AddFile called")
 	res, err := hub.SendSyncRequest(syncbox.SyncboxServerUsernam, syncbox.ActionGet, file)
 	if err != nil {
 		server.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
 		return err
 	}
-	server.LogDebug("response for SendSyncRequest in AddFile: %v\n", res)
+	server.LogDebug("response for SendSyncRequest: %v\n", res)
 
 	return nil
 }
