@@ -31,7 +31,7 @@ type Server struct {
 // NewServer instantiates server
 func NewServer() (*Server, error) {
 	logger := syncbox.NewLogger(syncbox.DefaultAppPrefix, syncbox.GlobalLogInfo, syncbox.GlobalLogDebug, syncbox.GlobalLogDebug)
-	db, err := syncbox.NewDB(&syncbox.UserTable{}, &syncbox.FileTable{}, &syncbox.FileRefTable{})
+	db, err := syncbox.NewDB(syncbox.UserTable{}, syncbox.FileTable{}, syncbox.FileRefTable{})
 	if err != nil {
 		logger.LogDebug("error on connecting database:%v\n", err)
 		return nil, err
@@ -210,12 +210,15 @@ func (server *Server) AddFile(path string, file *syncbox.File, hub *syncbox.Hub)
 	}
 	server.LogDebug("response for SendSyncRequest in AddFile: %v\n", res)
 
+	// addr := hub.Conn.RemoteAddr()
+
 	return nil
 }
 
 // DeleteFile implements the Syncer interface
 func (server *Server) DeleteFile(path string, file *syncbox.File, hub *syncbox.Hub) error {
 	// TODO: should delete the file ref in database, and delete file on S3 if no file refs on that file
+
 	return nil
 }
 

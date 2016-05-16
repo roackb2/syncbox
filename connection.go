@@ -45,6 +45,12 @@ type ClientConnector struct {
 	Hub        *Hub
 }
 
+type ServerSideClient struct {
+	Hub      *Hub
+	Username string
+	RefGraph *RefGraph
+}
+
 // ConnectionHandler is the interface to specify methods that should be implemented as a connection handler
 type ConnectionHandler interface {
 	HandleRequest(*Hub) error

@@ -61,6 +61,11 @@ run-server-local:
 
 build-and-run-server: build-server run-server-local
 
+build-and-run-server-ondisk:
+	go build .
+	go install ./$(server_program_name)
+	$(server_program_name)
+
 build-client:
 	go build
 	go install ./$(client_program_name)

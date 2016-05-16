@@ -37,42 +37,18 @@ var (
 	}
 )
 
-// Table is the general table interface that specifies what tables should implement
-type Table interface {
-	CreateSchema() string
-}
-
 // UserTable stores information about users
 type UserTable struct {
 	ID       int    `mysql:"id,pk,auto_increment"`
-	Username string `mysql:"username"`
+	Username string `mysql:"username,unique"`
 	Password string `mysql:"password"`
-}
-
-// CreateSchema implements Table interface to create schema
-func (ur *UserTable) CreateSchema() string {
-	return `CREATE TABLE IF NOT EXISTS user (
-				id INT PRIMARY KEY AUTO_INCREMENT,
-				username VARCHAR(255),
-				password VARCHAR(255)
-			)`
 }
 
 // FileTable stores information about files
 type FileTable struct {
 	ID       int    `mysql:"id,pk,auto_increment"`
-	Checksum string `mysql:"checksum"`
+	Checksum string `mysql:"checksum,unique"`
 	UserID   int    `mysql:"user_id,fk=user.id"`
-}
-
-// CreateSchema implements Table interface to create schema
-func (fr *FileTable) CreateSchema() string {
-	return `CREATE TABLE IF NOT EXISTS file (
-				id INT PRIMARY KEY AUTO_INCREMENT,
-				checksum VARCHAR(255),
-				user_id INT,
-				FOREIGN KEY (user_id) REFERENCES user(id)
-			)`
 }
 
 // FileRefTable stores edges that connects from file tree nodes to files
@@ -81,17 +57,6 @@ type FileRefTable struct {
 	FileID int    `mysql:"file_id,fk=file.id"`
 	Path   string `mysql:"path"`
 	Device string `mysql:"device"`
-}
-
-// CreateSchema implements Table interface to create schema
-func (frr *FileRefTable) CreateSchema() string {
-	return `CREATE TABLE IF NOT EXISTS file_ref (
-				id INT PRIMARY KEY AUTO_INCREMENT,
-				file_id INT,
-				path VARCHAR(255),
-				device VARCHAR(255),
-				FOREIGN KEY (file_id) REFERENCES file(id)
-			)`
 }
 
 // DBConfig is the structure for DB configurations
@@ -112,7 +77,7 @@ type DB struct {
 }
 
 // NewDB instantiates a DB instance
-func NewDB(tables ...Table) (*DB, error) {
+func NewDB(tables ...interface{}) (*DB, error) {
 	db := &DB{
 		DBConfig: AWSDBConfig,
 		Logger:   NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogError, GlobalLogDebug),
@@ -126,7 +91,7 @@ func NewDB(tables ...Table) (*DB, error) {
 	for _, table := range tables {
 		tableType := reflect.ValueOf(table)
 		db.Tables = append(db.Tables, tableType)
-		db.Exec(table.CreateSchema())
+		db.Exec(createSchema(table))
 		if err != nil {
 			db.Logger.LogDebug("error on execute statement: %v\n", err)
 			return nil, err
@@ -143,7 +108,7 @@ func (db *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
 		return nil, err
 	}
 	var res sql.Result
-	if len(args) == 0 {
+	if len(args) == 0 || (len(args) == 1 && args[0] == nil) {
 		res, err = stmt.Exec()
 	} else {
 		res, err = stmt.Exec(args)
@@ -155,35 +120,61 @@ func (db *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
 	return res, nil
 }
 
-// func createSchema(table interface{}) (string, error) {
-// 	stat := "CREATE TABLE IF NOT EXISTS "
-// 	structType := reflect.TypeOf(table)
-// 	stat += underscore(strings.Trim(structType.Name(), "Record")) + "( "
-// 	fieldNum := structType.NumField()
-// 	for i := 0; i < fieldNum; i++ {
-// 		var fieldName string
-// 		field := structType.Field(i)
-// 		tag := field.Tag.Get("mysql")
-// 		opts := strings.Split(tag, ",")
-// 		if len(opts) > 0 {
-// 			fieldName = opts[0]
-// 			opts = opts[1 : len(opts)-1]
-// 		} else {
-// 			fieldName = field.Name
-// 		}
-// 		stat += fieldName + " "
-// 		for _, opt := range opts {
-// 			if opt == "pk" {
-//
-// 			}
-// 		}
-// 	}
-// 	return stat, nil
-// }
-
-// func (db *DB) CreateTable() error {
-//
-// }
+func createSchema(table interface{}) (string, error) {
+	stat := "CREATE TABLE IF NOT EXISTS "
+	structType := reflect.TypeOf(table)
+	structName := strings.Split(structType.String(), ".")[1]
+	tableName := underscore(strings.Replace(structName, "Table", "", 1))
+	stat += tableName + "( "
+	fieldNum := structType.NumField()
+	var constraints []string
+	for i := 0; i < fieldNum; i++ {
+		var fieldName string
+		field := structType.Field(i)
+		tag := field.Tag.Get("mysql")
+		opts := strings.Split(tag, ",")
+		if len(opts) > 0 {
+			fieldName = opts[0]
+			opts = opts[1:len(opts)]
+		} else {
+			fieldName = field.Name
+		}
+		stat += fieldName + " "
+		fieldType := field.Type
+		switch fieldType.Kind() {
+		case reflect.Int:
+			stat += "INT "
+		case reflect.String:
+			stat += "VARCHAR(255) "
+		}
+		for _, opt := range opts {
+			switch {
+			case opt == "pk":
+				stat += "PRIMARY KEY "
+			case opt == "auto_increment":
+				stat += "AUTO_INCREMENT "
+			case opt == "unique":
+				stat += "UNIQUE "
+			case strings.HasPrefix(opt, "fk"):
+				fkRef := strings.Replace(opt, "fk=", "", 1)
+				splitted := strings.Split(fkRef, ".")
+				table := splitted[0]
+				column := splitted[1]
+				constraint := "FOREIGN KEY (" + fieldName + ")" + " REFERENCES " + table + "(" + column + ")"
+				constraints = append(constraints, constraint)
+			}
+		}
+		stat = strings.TrimRight(stat, " ")
+		stat += ", "
+	}
+	for _, constraint := range constraints {
+		stat += constraint + ", "
+	}
+	stat = strings.TrimRight(stat, " ")
+	stat = strings.TrimRight(stat, ",")
+	stat += ")"
+	return stat, nil
+}
 
 func test() {
 	db, err := sql.Open("mysql", "astaxie:astaxie@/test?charset=utf8")
