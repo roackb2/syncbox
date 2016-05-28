@@ -35,30 +35,31 @@ type Connector struct {
 // ServerConnector structure for server connection
 type ServerConnector struct {
 	*Connector
-	Hubs map[*net.TCPAddr]*Hub
+	Clients map[*net.TCPAddr]*Peer
 }
 
 // ClientConnector structure for client connection
 type ClientConnector struct {
 	*Connector
 	ClientPort string
-	Hub        *Hub
+	Peer       *Peer
 }
 
-type ServerSideClient struct {
-	Hub      *Hub
+// Peer is a representation of a connection
+type Peer struct {
+	*Hub
 	Username string
 	RefGraph *RefGraph
 }
 
 // ConnectionHandler is the interface to specify methods that should be implemented as a connection handler
 type ConnectionHandler interface {
-	HandleRequest(*Hub) error
+	HandleRequest(*Peer) error
 	HandleError(error)
-	ProcessIdentity(*Request, *Hub, ErrorHandler)
-	ProcessDigest(*Request, *Hub, ErrorHandler)
-	ProcessSync(*Request, *Hub, ErrorHandler)
-	ProcessFile(*Request, *Hub, ErrorHandler)
+	ProcessIdentity(*Request, *Peer, ErrorHandler)
+	ProcessDigest(*Request, *Peer, ErrorHandler)
+	ProcessSync(*Request, *Peer, ErrorHandler)
+	ProcessFile(*Request, *Peer, ErrorHandler)
 	LogInfo(string, ...interface{})
 	LogDebug(string, ...interface{})
 	LogError(string, ...interface{})
@@ -66,7 +67,7 @@ type ConnectionHandler interface {
 
 // RequestHandler function type for server to handle requests
 // RequestHandler should be called as goroutine
-type RequestHandler func(*Hub) error
+type RequestHandler func(*Peer) error
 
 // ErrorHandler function type for server to deal with errors when handling connections
 type ErrorHandler func(error)
@@ -84,7 +85,7 @@ func NewServerConnector() (*ServerConnector, error) {
 			ServerAddr: addr,
 			Logger:     NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogError, GlobalLogDebug),
 		},
-		Hubs: make(map[*net.TCPAddr]*Hub),
+		Clients: make(map[*net.TCPAddr]*Peer),
 	}, nil
 }
 
@@ -106,6 +107,15 @@ func NewClientConnector() (*ClientConnector, error) {
 	}, nil
 }
 
+// NewPeer instantiates a Peer
+func NewPeer(hub *Hub, username string, rg *RefGraph) *Peer {
+	return &Peer{
+		Hub:      hub,
+		Username: username,
+		RefGraph: rg,
+	}
+}
+
 // Listen listen on port
 func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 	ln, err := net.ListenTCP("tcp", sc.ServerAddr)
@@ -122,13 +132,15 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 		}
 		addr := conn.RemoteAddr().(*net.TCPAddr)
 		hub := NewHub(conn, handler.HandleError)
-		sc.Hubs[addr] = hub
+		peer := NewPeer(hub, "", nil)
+		sc.Clients[addr] = peer
+
 		go func() {
 			defer func() {
 				conn.Close()
-				delete(sc.Hubs, addr)
+				delete(sc.Clients, addr)
 			}()
-			err := handler.HandleRequest(hub)
+			err := handler.HandleRequest(peer)
 			if err != nil {
 				sc.LogDebug("error on handle connection: %v\n", err)
 				handler.HandleError(err)
@@ -137,7 +149,7 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 	}
 }
 
-// Dial dial to server
+// Dial dials to server
 func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
 	clientAddr, err := net.ResolveTCPAddr("tcp", ":"+cc.ClientPort)
 	if err != nil {
@@ -149,12 +161,13 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
 		cc.LogDebug("error on dial: %v\n", err)
 		return err
 	}
-	cc.Hub = NewHub(conn, handler.HandleError)
+	hub := NewHub(conn, handler.HandleError)
+	cc.Peer = NewPeer(hub, "", nil)
 	go func() {
 		defer func() {
 			conn.Close()
 		}()
-		err := handler.HandleRequest(cc.Hub)
+		err := handler.HandleRequest(cc.Peer)
 		if err != nil {
 			cc.LogDebug("error on handle connection: %v\n", err)
 			handler.HandleError(err)
@@ -164,9 +177,10 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
 }
 
 // HandleRequest boilerplates connection handling
-func HandleRequest(hub *Hub, handler ConnectionHandler) error {
+func HandleRequest(peer *Peer, handler ConnectionHandler) error {
 	for {
-		req, err := hub.ReceiveRequest()
+		req, err := peer.Hub.ReceiveRequest()
+		peer.Username = req.Username
 		if err != nil {
 			if err == ErrorEmptyContent || err == io.EOF {
 				// peer socket is closed
@@ -178,13 +192,13 @@ func HandleRequest(hub *Hub, handler ConnectionHandler) error {
 		handler.LogDebug("request data type: %v\n", req.DataType)
 		switch req.DataType {
 		case TypeIdentity:
-			go handler.ProcessIdentity(req, hub, handler.HandleError)
+			go handler.ProcessIdentity(req, peer, handler.HandleError)
 		case TypeDigest:
-			go handler.ProcessDigest(req, hub, handler.HandleError)
+			go handler.ProcessDigest(req, peer, handler.HandleError)
 		case TypeSyncRequest:
-			go handler.ProcessSync(req, hub, handler.HandleError)
+			go handler.ProcessSync(req, peer, handler.HandleError)
 		case TypeFile:
-			go handler.ProcessFile(req, hub, handler.HandleError)
+			go handler.ProcessFile(req, peer, handler.HandleError)
 		default:
 			handler.LogDebug("data type: %v\n", req.DataType)
 			return ErrorUnknownRequestType

@@ -3,14 +3,14 @@ package syncbox
 // Compare should compare to directories and let syncer to deal with the file tree difference.
 // This function assumes values of walked of all nodes in dirs are false.
 // The caller should give empty string to the path variable
-func Compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) error {
-	err := compare(path, oldDir, newDir, syncer, hub)
+func Compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) error {
+	err := compare(path, oldDir, newDir, syncer, peer)
 	oldDir.ResetWalked()
 	newDir.ResetWalked()
 	return err
 }
 
-func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) error {
+func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) error {
 	if oldDir.ContentChecksum == newDir.ContentChecksum {
 		return nil
 	}
@@ -20,12 +20,12 @@ func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) err
 		targetDir, exists := newDir.Dirs[checksum]
 		if exists {
 			targetDir.walked = true
-			err := Compare(path, dir, targetDir, syncer, hub)
+			err := Compare(path, dir, targetDir, syncer, peer)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := syncer.DeleteDir(path, dir, hub) //walkSubDir(dir, handleRemovedFile)
+			err := syncer.DeleteDir(path, dir, peer) //walkSubDir(dir, handleRemovedFile)
 			if err != nil {
 				return err
 			}
@@ -37,7 +37,7 @@ func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) err
 		if dir.walked {
 			continue
 		}
-		err := syncer.AddDir(path, dir, hub) //walkSubDir(dir, handleNewFile)
+		err := syncer.AddDir(path, dir, peer) //walkSubDir(dir, handleNewFile)
 		if err != nil {
 			return err
 		}
@@ -48,7 +48,7 @@ func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) err
 			targetFile.walked = true
 			continue
 		} else {
-			err := syncer.DeleteFile(path, file, hub)
+			err := syncer.DeleteFile(path, file, peer)
 			if err != nil {
 				return err
 			}
@@ -58,7 +58,7 @@ func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, hub *Hub) err
 		if file.walked {
 			continue
 		}
-		err := syncer.AddFile(path, file, hub)
+		err := syncer.AddFile(path, file, peer)
 		if err != nil {
 			return err
 		}

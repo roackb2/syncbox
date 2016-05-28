@@ -30,7 +30,7 @@ type Server struct {
 
 // NewServer instantiates server
 func NewServer() (*Server, error) {
-	logger := syncbox.NewLogger(syncbox.DefaultAppPrefix, syncbox.GlobalLogInfo, syncbox.GlobalLogDebug, syncbox.GlobalLogDebug)
+	logger := syncbox.NewLogger(syncbox.DefaultAppPrefix, syncbox.GlobalLogInfo, syncbox.GlobalLogError, syncbox.GlobalLogDebug)
 	db, err := syncbox.NewDB(syncbox.UserTable{}, syncbox.FileTable{}, syncbox.FileRefTable{})
 	if err != nil {
 		logger.LogDebug("error on connecting database:%v\n", err)
@@ -62,8 +62,8 @@ func (server *Server) Start() error {
 }
 
 // HandleRequest implements the ConnectionHandler interface
-func (server *Server) HandleRequest(hub *syncbox.Hub) error {
-	return syncbox.HandleRequest(hub, server)
+func (server *Server) HandleRequest(peer *syncbox.Peer) error {
+	return syncbox.HandleRequest(peer, server)
 }
 
 // HandleError implements the ConnectionHandler interface
@@ -72,7 +72,7 @@ func (server *Server) HandleError(err error) {
 }
 
 // ProcessIdentity implements the ConnectionHandler interface
-func (server *Server) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
+func (server *Server) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	iReq := syncbox.IdentityRequest{}
 	if err := json.Unmarshal(data, &iReq); err != nil {
@@ -80,7 +80,7 @@ func (server *Server) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub, eH
 		eHandler(err)
 	}
 	// server.LogDebug("server ProcessIdentity called, req: %v\n", iReq)
-	if err := hub.SendResponse(&syncbox.Response{
+	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -90,7 +90,15 @@ func (server *Server) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub, eH
 }
 
 // ProcessDigest implements the ConnectionHandler interface
-func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
+func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
+	if peer.Username != "" && peer.RefGraph == nil {
+		rg, err := syncbox.NewRefGraph(peer.Username, server.DB)
+		if err != nil {
+			server.LogDebug("error on NewRefGraph in ProcessDigest: %v\n", err)
+			eHandler(err)
+		}
+		peer.RefGraph = rg
+	}
 	data := req.Data
 	dReq := syncbox.DigestRequest{}
 	if err := json.Unmarshal(data, &dReq); err != nil {
@@ -132,7 +140,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub, eHan
 	// server.LogDebug("old dir: %v\n", oldDir)
 
 	// send response to user before Compare
-	if err := hub.SendResponse(&syncbox.Response{
+	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -141,7 +149,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub, eHan
 	}
 
 	// compare the server side and client side directory, and sync them
-	if err := syncbox.Compare("", oldDir, dReq.Dir, server, hub); err != nil {
+	if err := syncbox.Compare("", oldDir, dReq.Dir, server, peer); err != nil {
 		server.LogDebug("error on Compare in ProcessDigest: %v\n", err)
 		eHandler(err)
 	}
@@ -154,7 +162,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub, eHan
 }
 
 // ProcessSync implements the ConnectionHandler interface
-func (server *Server) ProcessSync(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
+func (server *Server) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	sReq := syncbox.SyncRequest{}
 	if err := json.Unmarshal(data, &sReq); err != nil {
@@ -162,7 +170,7 @@ func (server *Server) ProcessSync(req *syncbox.Request, hub *syncbox.Hub, eHandl
 		eHandler(err)
 	}
 	// server.LogDebug("server ProcessSync called, req: %v\n", sReq)
-	if err := hub.SendResponse(&syncbox.Response{
+	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -172,7 +180,7 @@ func (server *Server) ProcessSync(req *syncbox.Request, hub *syncbox.Hub, eHandl
 }
 
 // ProcessFile implements the ConnectionHandler interface
-func (server *Server) ProcessFile(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
+func (server *Server) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	dReq := syncbox.FileRequest{}
 	if err := json.Unmarshal(data, &dReq); err != nil {
@@ -189,7 +197,7 @@ func (server *Server) ProcessFile(req *syncbox.Request, hub *syncbox.Hub, eHandl
 		eHandler(err)
 	}
 
-	if err := hub.SendResponse(&syncbox.Response{
+	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -200,10 +208,10 @@ func (server *Server) ProcessFile(req *syncbox.Request, hub *syncbox.Hub, eHandl
 }
 
 // AddFile implements the Syncer interface
-func (server *Server) AddFile(path string, file *syncbox.File, hub *syncbox.Hub) error {
+func (server *Server) AddFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
 	// TODO: should send a FileRequest to client to get file content, and save to S3
 	// server.LogDebug("server AddFile called")
-	res, err := hub.SendSyncRequest(syncbox.SyncboxServerUsernam, syncbox.ActionGet, file)
+	res, err := peer.SendSyncRequest(syncbox.SyncboxServerUsernam, syncbox.ActionGet, file)
 	if err != nil {
 		server.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
 		return err
@@ -216,26 +224,26 @@ func (server *Server) AddFile(path string, file *syncbox.File, hub *syncbox.Hub)
 }
 
 // DeleteFile implements the Syncer interface
-func (server *Server) DeleteFile(path string, file *syncbox.File, hub *syncbox.Hub) error {
+func (server *Server) DeleteFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
 	// TODO: should delete the file ref in database, and delete file on S3 if no file refs on that file
 
 	return nil
 }
 
 // AddDir implements the Syncer interface
-func (server *Server) AddDir(path string, file *syncbox.Dir, hub *syncbox.Hub) error {
+func (server *Server) AddDir(path string, file *syncbox.Dir, peer *syncbox.Peer) error {
 	// TODO: should walk through the directory recursively and call AddFile on files
 	return nil
 }
 
 // DeleteDir implements the Syncer interface
-func (server *Server) DeleteDir(path string, file *syncbox.Dir, hub *syncbox.Hub) error {
+func (server *Server) DeleteDir(path string, file *syncbox.Dir, peer *syncbox.Peer) error {
 	// TODO: should wak through the directory recursively and call DeleteFile on files
 	return nil
 }
 
 // GetFile implements the Syncer interface
-func (server *Server) GetFile(path string, file *syncbox.File, hub *syncbox.Hub) error {
+func (server *Server) GetFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
 	// noop
 	return nil
 }

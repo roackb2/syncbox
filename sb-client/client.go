@@ -16,7 +16,7 @@ import (
 // constants about scan
 const (
 	MaxScanCount = math.MaxInt32
-	ScanPeriod   = 4 * time.Second
+	ScanPeriod   = 2 * time.Second
 )
 
 func main() {
@@ -42,7 +42,7 @@ type Client struct {
 
 // NewClient instantiates a Client
 func NewClient() (*Client, error) {
-	logger := syncbox.NewLogger(syncbox.DefaultAppPrefix, syncbox.GlobalLogInfo, syncbox.GlobalLogDebug, syncbox.GlobalLogDebug)
+	logger := syncbox.NewLogger(syncbox.DefaultAppPrefix, syncbox.GlobalLogInfo, syncbox.GlobalLogError, syncbox.GlobalLogDebug)
 
 	connector, err := syncbox.NewClientConnector()
 	if err != nil {
@@ -96,8 +96,8 @@ func (client *Client) Start() error {
 }
 
 // HandleRequest implements the ConnectionHandler interface
-func (client *Client) HandleRequest(hub *syncbox.Hub) error {
-	return syncbox.HandleRequest(hub, client)
+func (client *Client) HandleRequest(peer *syncbox.Peer) error {
+	return syncbox.HandleRequest(peer, client)
 }
 
 // HandleError implements the ConnectionHandler interface
@@ -106,7 +106,7 @@ func (client *Client) HandleError(err error) {
 }
 
 // ProcessIdentity implements the ConnectionHandler interface
-func (client *Client) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
+func (client *Client) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	iReq := syncbox.IdentityRequest{}
 	if err := json.Unmarshal(data, &iReq); err != nil {
@@ -114,7 +114,7 @@ func (client *Client) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub, eH
 		eHandler(err)
 	}
 	// client.LogDebug("client ProcessIdentity called, req: %v\n", iReq)
-	if err := hub.SendResponse(&syncbox.Response{
+	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -124,7 +124,7 @@ func (client *Client) ProcessIdentity(req *syncbox.Request, hub *syncbox.Hub, eH
 }
 
 // ProcessDigest implements the ConnectionHandler interface
-func (client *Client) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
+func (client *Client) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	dReq := syncbox.DigestRequest{}
 	if err := json.Unmarshal(data, &dReq); err != nil {
@@ -132,7 +132,7 @@ func (client *Client) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub, eHan
 		eHandler(err)
 	}
 	// client.LogDebug("client ProcessDigest called, req: %v\n", dReq)
-	if err := hub.SendResponse(&syncbox.Response{
+	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -142,7 +142,7 @@ func (client *Client) ProcessDigest(req *syncbox.Request, hub *syncbox.Hub, eHan
 }
 
 // ProcessSync implements the ConnectionHandler interface
-func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
+func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	sReq := syncbox.SyncRequest{}
 	if err := json.Unmarshal(data, &sReq); err != nil {
@@ -158,7 +158,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub, eHandl
 			client.LogDebug("error reading file: %v\n", err)
 			eHandler(err)
 		}
-		if err := hub.SendResponse(&syncbox.Response{
+		if err := peer.SendResponse(&syncbox.Response{
 			Status:  syncbox.StatusOK,
 			Message: syncbox.MessageAccept,
 		}); err != nil {
@@ -166,7 +166,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub, eHandl
 			eHandler(err)
 		}
 		// client.LogDebug("before SendFileRequest")
-		res, err := hub.SendFileRequest(client.Username, sReq.File, fileBytes)
+		res, err := peer.SendFileRequest(client.Username, sReq.File, fileBytes)
 		// client.LogDebug("response of SendFileRequest:\n%v\n", res)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
@@ -177,7 +177,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, hub *syncbox.Hub, eHandl
 }
 
 // ProcessFile implements the ConnectionHandler interface
-func (client *Client) ProcessFile(req *syncbox.Request, hub *syncbox.Hub, eHandler syncbox.ErrorHandler) {
+func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	dReq := syncbox.FileRequest{}
 	if err := json.Unmarshal(data, &dReq); err != nil {
@@ -185,7 +185,7 @@ func (client *Client) ProcessFile(req *syncbox.Request, hub *syncbox.Hub, eHandl
 		eHandler(err)
 	}
 	// client.LogDebug("client ProcessFile called, req: %v\n", dReq)
-	if err := hub.SendResponse(&syncbox.Response{
+	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -234,7 +234,7 @@ func (client *Client) Scan() error {
 	}
 
 	// client.LogInfo("sending digest request to server")
-	res, err := client.ClientConnector.Hub.SendDigestRequest(client.Username, client.NewDir)
+	res, err := client.ClientConnector.Peer.SendDigestRequest(client.Username, client.NewDir)
 	if err != nil {
 		client.LogError("error on send: %v\n", err)
 		return err

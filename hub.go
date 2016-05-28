@@ -29,7 +29,7 @@ func NewHub(conn *net.TCPConn, eHandler ErrorHandler) *Hub {
 		InboundResponse:  make(chan []byte),
 		OutboundResponse: make(chan []byte),
 		ErrorHandler:     eHandler,
-		Logger:           NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogDebug, GlobalLogDebug),
+		Logger:           NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogError, GlobalLogDebug),
 	}
 	hub.Setup()
 	return hub

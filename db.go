@@ -54,6 +54,7 @@ type FileTable struct {
 // FileRefTable stores edges that connects from file tree nodes to files
 type FileRefTable struct {
 	ID     int    `mysql:"id,pk,auto_increment"`
+	UserID int    `mysql:"user_id,fk=user.id"`
 	FileID int    `mysql:"file_id,fk=file.id"`
 	Path   string `mysql:"path"`
 	Device string `mysql:"device"`
@@ -72,7 +73,7 @@ type DBConfig struct {
 type DB struct {
 	*DBConfig
 	*Logger
-	Conn   *sql.DB
+	*sql.DB
 	Tables []reflect.Value
 }
 
@@ -87,7 +88,7 @@ func NewDB(tables ...interface{}) (*DB, error) {
 		db.Logger.LogDebug("error on new db: %v\n", err)
 		return nil, err
 	}
-	db.Conn = conn
+	db.DB = conn
 	for _, table := range tables {
 		tableType := reflect.ValueOf(table)
 		db.Tables = append(db.Tables, tableType)
@@ -102,7 +103,7 @@ func NewDB(tables ...interface{}) (*DB, error) {
 
 // Exec executes raw SQL commands
 func (db *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
-	stmt, err := db.Conn.Prepare(query)
+	stmt, err := db.Prepare(query)
 	if err != nil {
 		db.LogDebug("error preparing statment: %v\n", err)
 		return nil, err
@@ -118,6 +119,117 @@ func (db *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
 		return nil, err
 	}
 	return res, nil
+}
+
+// Query is a structure type that forms a query with builder pattern
+type Query struct {
+	SelectClause string
+	FromClause   string
+	WhereClause  string
+	db           *DB
+}
+
+// NewQuery instantiates a query
+func NewQuery(db *DB) *Query {
+	return &Query{
+		db:           db,
+		SelectClause: "SELECT ",
+		FromClause:   " FROM ",
+		WhereClause:  " WHERE ",
+	}
+}
+
+func (q *Query) copy(q2 *Query) {
+	q1Val := reflect.ValueOf(q).Elem()
+	q2Val := reflect.ValueOf(q2).Elem()
+	for i := 0; i < q1Val.NumField(); i++ {
+		q1Field := q1Val.Field(i)
+		q2Field := q2Val.Field(i)
+		switch q2Field.Kind() {
+		case reflect.String:
+			fmt.Printf("")
+			q1Field.SetString(q2Field.String())
+		case reflect.Int:
+			q1Field.SetInt(q2Field.Int())
+		}
+	}
+}
+
+// Select forms the select clause with the constraint
+func (q *Query) Select(condition string) *Query {
+	newQ := NewQuery(q.db)
+	newQ.copy(q)
+	newQ.SelectClause += condition
+	return newQ
+}
+
+// From forms the from clause according to the input
+func (q *Query) From(condition string) *Query {
+	newQ := NewQuery(q.db)
+	newQ.copy(q)
+	newQ.FromClause += condition
+	return newQ
+}
+
+// Where forms the where clause acoording to the input
+func (q *Query) Where(condition string) *Query {
+	newQ := NewQuery(q.db)
+	newQ.copy(q)
+	newQ.WhereClause += condition
+	return newQ
+}
+
+// Exec executes the query
+func (q *Query) Exec() (*sql.Rows, error) {
+	stmt := q.SelectClause + q.FromClause + q.WhereClause
+	fmt.Printf("stmt: %v\n", stmt)
+	rows, err := q.db.Query(stmt)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// Populate populates data to a slice of reference of tables
+// the input should be address of slice of pointers of certain table
+func (q *Query) Populate(a interface{}) error {
+	sliceVal := reflect.ValueOf(a).Elem()
+	sliceType := reflect.TypeOf(a).Elem()
+	elemPtr := sliceType.Elem()
+	elemType := elemPtr.Elem()
+	rows, err := q.Exec()
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		recordPtr := reflect.New(elemType)
+		record := recordPtr.Elem()
+		fieldNum := elemType.NumField()
+		fieldList := make([]interface{}, 0, 0)
+		for i := 0; i < fieldNum; i++ {
+			field := record.Field(i)
+			switch field.Kind() {
+			case reflect.String:
+				temp := ""
+				fieldList = append(fieldList, &temp)
+			case reflect.Int:
+				temp := 0
+				fieldList = append(fieldList, &temp)
+			}
+		}
+		rows.Scan(fieldList...)
+		for i := 0; i < fieldNum; i++ {
+			field := record.Field(i)
+			switch field.Kind() {
+			case reflect.String:
+				field.Set(reflect.ValueOf(*fieldList[i].(*string)))
+			case reflect.Int:
+				field.Set(reflect.ValueOf(*fieldList[i].(*int)))
+			}
+		}
+		sliceVal.Set(reflect.Append(sliceVal, recordPtr))
+	}
+	return nil
 }
 
 func createSchema(table interface{}) (string, error) {
@@ -174,66 +286,6 @@ func createSchema(table interface{}) (string, error) {
 	stat = strings.TrimRight(stat, ",")
 	stat += ")"
 	return stat, nil
-}
-
-func test() {
-	db, err := sql.Open("mysql", "astaxie:astaxie@/test?charset=utf8")
-	checkErr(err)
-
-	// insert data
-	stmt, err := db.Prepare("INSERT userinfo SET username=?,departname=?,created=?")
-	checkErr(err)
-
-	res, err := stmt.Exec("astaxie", "研发部门", "2012-12-09")
-	checkErr(err)
-
-	id, err := res.LastInsertId()
-	checkErr(err)
-
-	fmt.Println(id)
-	// update data
-	stmt, err = db.Prepare("update userinfo set username=? where uid=?")
-	checkErr(err)
-
-	res, err = stmt.Exec("astaxieupdate", id)
-	checkErr(err)
-
-	affect, err := res.RowsAffected()
-	checkErr(err)
-
-	fmt.Println(affect)
-
-	// query data
-	rows, err := db.Query("SELECT * FROM userinfo")
-	checkErr(err)
-
-	for rows.Next() {
-		var uid int
-		var username string
-		var department string
-		var created string
-		err = rows.Scan(&uid, &username, &department, &created)
-		checkErr(err)
-		fmt.Println(uid)
-		fmt.Println(username)
-		fmt.Println(department)
-		fmt.Println(created)
-	}
-
-	// delelte data
-	stmt, err = db.Prepare("delete from userinfo where uid=?")
-	checkErr(err)
-
-	res, err = stmt.Exec(id)
-	checkErr(err)
-
-	affect, err = res.RowsAffected()
-	checkErr(err)
-
-	fmt.Println(affect)
-
-	db.Close()
-
 }
 
 func checkErr(err error) {
