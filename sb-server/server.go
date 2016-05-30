@@ -3,7 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
+	"regexp"
+	"strings"
 
 	"github.com/roackb2/syncbox"
 )
@@ -30,7 +31,7 @@ type Server struct {
 
 // NewServer instantiates server
 func NewServer() (*Server, error) {
-	logger := syncbox.NewLogger(syncbox.DefaultAppPrefix, syncbox.GlobalLogInfo, syncbox.GlobalLogError, syncbox.GlobalLogDebug)
+	logger := syncbox.NewDefaultLogger()
 	db, err := syncbox.NewDB(syncbox.UserTable{}, syncbox.FileTable{}, syncbox.FileRefTable{})
 	if err != nil {
 		logger.LogDebug("error on connecting database:%v\n", err)
@@ -73,6 +74,14 @@ func (server *Server) HandleError(err error) {
 
 // ProcessIdentity implements the ConnectionHandler interface
 func (server *Server) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
+	if peer.Username != "" && peer.RefGraph == nil {
+		rg, err := syncbox.NewRefGraph(peer.Username, peer.Password, server.DB)
+		if err != nil {
+			server.LogDebug("error on NewRefGraph in ProcessDigest: %v\n", err)
+			eHandler(err)
+		}
+		peer.RefGraph = rg
+	}
 	data := req.Data
 	iReq := syncbox.IdentityRequest{}
 	if err := json.Unmarshal(data, &iReq); err != nil {
@@ -91,8 +100,10 @@ func (server *Server) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, 
 
 // ProcessDigest implements the ConnectionHandler interface
 func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
+	hasOldDigest := true
+	oldDir := syncbox.NewEmptyDir()
 	if peer.Username != "" && peer.RefGraph == nil {
-		rg, err := syncbox.NewRefGraph(peer.Username, server.DB)
+		rg, err := syncbox.NewRefGraph(peer.Username, peer.Password, server.DB)
 		if err != nil {
 			server.LogDebug("error on NewRefGraph in ProcessDigest: %v\n", err)
 			eHandler(err)
@@ -126,17 +137,23 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 	// get the server side digest file for the user
 	oldDigestBytes, err := server.Storage.GetObject(req.Username, syncbox.DigestFileName)
 	if err != nil {
-		server.LogDebug("error on GetObject in ProcessDigest: %v\n", err)
-		eHandler(err)
+		if strings.HasPrefix(err.Error(), "NoSuchKey: The specified key does not exist.") {
+			hasOldDigest = false
+		} else {
+			server.LogDebug("error on GetObject in ProcessDigest: %v\n", err)
+			eHandler(err)
+		}
 	}
 	// server.LogDebug("old digest bytes: %v\n", oldDigestBytes)
 
-	// reborn old directory from digest file
-	oldDir := &syncbox.Dir{}
-	if err := json.Unmarshal(oldDigestBytes, oldDir); err != nil {
-		server.LogDebug("error on Unmarshal in ProcessDigest: %v\n", err)
-		eHandler(err)
+	// reborn old directory from digest file,  if it exists
+	if hasOldDigest {
+		if err := json.Unmarshal(oldDigestBytes, oldDir); err != nil {
+			server.LogDebug("error on Unmarshal in ProcessDigest: %v\n", err)
+			eHandler(err)
+		}
 	}
+
 	// server.LogDebug("old dir: %v\n", oldDir)
 
 	// send response to user before Compare
@@ -152,6 +169,19 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 	if err := syncbox.Compare("", oldDir, dReq.Dir, server, peer); err != nil {
 		server.LogDebug("error on Compare in ProcessDigest: %v\n", err)
 		eHandler(err)
+	}
+
+	// clean up objects in S3 if no refs on the files
+	noRefFiles, err := peer.RefGraph.GetNoRefFiles()
+	if err != nil {
+		server.LogError("error on GetNoRefFiles in ProcessDigest: %v\n", err)
+		eHandler(err)
+	}
+	for _, fileRec := range noRefFiles {
+		if err := server.DeleteObject(peer.Username, fileRec.Checksum); err != nil {
+			server.LogError("error on DeleteObject in ProcessDigest: %v\n", err)
+			eHandler(err)
+		}
 	}
 
 	// put the digest file to S3
@@ -180,6 +210,7 @@ func (server *Server) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 }
 
 // ProcessFile implements the ConnectionHandler interface
+// should executes the steps to save file to s3
 func (server *Server) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
 	data := req.Data
 	dReq := syncbox.FileRequest{}
@@ -189,7 +220,7 @@ func (server *Server) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 	}
 	// server.LogDebug("server ProcessFile called, req: %v\n", dReq)
 
-	filename := strconv.FormatInt(syncbox.ReadInt64(dReq.File.ContentChecksum[:]), 10)
+	filename := syncbox.ChecksumToNumString(dReq.File.ContentChecksum)
 	content := string(dReq.Content)
 	// server.LogDebug("filename: %v\ncontent: %v\n", filename, content)
 	if err := server.Storage.CreateObject(req.Username, filename, content); err != nil {
@@ -203,60 +234,78 @@ func (server *Server) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 	}); err != nil {
 		server.LogDebug("error on SendResponse in ProcessFile: %v\n", err)
 		eHandler(err)
-
 	}
 }
 
 // AddFile implements the Syncer interface
+// should send a FileRequest to client to get file content, and save to S3
 func (server *Server) AddFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
-	// TODO: should send a FileRequest to client to get file content, and save to S3
-	// server.LogDebug("server AddFile called")
-	res, err := peer.SendSyncRequest(syncbox.SyncboxServerUsernam, syncbox.ActionGet, file)
-	if err != nil {
-		server.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
+	duplicate := false
+	// firstly add a file record to database, see if there are duplicates
+	if err := peer.RefGraph.AddFileRecord(file, path, peer.Device); err != nil {
+		duplicate, _ = regexp.MatchString("Error \\d+: Duplicate entry '\\d+' for key 'checksum'", " Error 1062: Duplicate entry '338333539836370388' for key 'checksum'")
+		if !duplicate {
+			server.LogDebug("error on AddRef in AddFile: %v\n", err)
+			return err
+		}
+	}
+
+	// if no duplicate, send a sync request to client to get file and save to s3
+	if !duplicate {
+		res, err := peer.SendSyncRequest(syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.ActionGet, file)
+		if err != nil {
+			server.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
+			return err
+		}
+		server.LogDebug("response for SendSyncRequest in AddFile: %v\n", res)
+	}
+
+	// no matter whether there are duplicates, it's needed to add a file ref record to database
+	if err := peer.RefGraph.AddFileRefRecord(file, path, peer.Device); err != nil {
 		return err
 	}
-	server.LogDebug("response for SendSyncRequest in AddFile: %v\n", res)
-
-	// addr := hub.Conn.RemoteAddr()
 
 	return nil
 }
 
 // DeleteFile implements the Syncer interface
+// should delete the file ref in database
 func (server *Server) DeleteFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
-	// TODO: should delete the file ref in database, and delete file on S3 if no file refs on that file
+	if err := peer.RefGraph.DeleteFileRefRecord(file, peer.Device, path); err != nil {
+		server.LogDebug("error on DeleteRef in DeleteFile: %v\n", err)
+		return err
+	}
 
 	return nil
 }
 
 // AddDir implements the Syncer interface
-func (server *Server) AddDir(path string, file *syncbox.Dir, peer *syncbox.Peer) error {
-	// TODO: should walk through the directory recursively and call AddFile on files
-	return nil
+// should walk through the directory recursively and call AddFile on files
+func (server *Server) AddDir(path string, dir *syncbox.Dir, peer *syncbox.Peer) error {
+	return walkSubDir(path, dir, peer, server.AddFile)
 }
 
 // DeleteDir implements the Syncer interface
-func (server *Server) DeleteDir(path string, file *syncbox.Dir, peer *syncbox.Peer) error {
-	// TODO: should wak through the directory recursively and call DeleteFile on files
-	return nil
+// should walk through the directory recursively and call DeleteFile on files
+func (server *Server) DeleteDir(path string, dir *syncbox.Dir, peer *syncbox.Peer) error {
+	return walkSubDir(path, dir, peer, server.DeleteFile)
 }
 
 // GetFile implements the Syncer interface
+// noop
 func (server *Server) GetFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
-	// noop
 	return nil
 }
 
-func walkSubDir(path string, dir *syncbox.Dir, manipulator syncbox.FileManipulator) error {
+func walkSubDir(path string, dir *syncbox.Dir, peer *syncbox.Peer, manipulator syncbox.FileManipulator) error {
 	for _, dir := range dir.Dirs {
-		err := walkSubDir(path, dir, manipulator)
+		err := walkSubDir(path, dir, peer, manipulator)
 		if err != nil {
 			return err
 		}
 	}
 	for _, file := range dir.Files {
-		err := manipulator(path, file)
+		err := manipulator(path, file, peer)
 		if err != nil {
 			return err
 		}

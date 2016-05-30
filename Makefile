@@ -4,7 +4,8 @@ server_dockerfile = build/server.Dockerfile
 server_program_name = sb-server
 client_program_name = sb-client
 aws_default_region = us-east-1
-base_image_name = $(docker_registry)/go-base
+simple_base_image_name=go-base
+base_image_name = $(docker_registry)/$(simple_base_image_name)
 server_image_name = $(docker_registry)/$(server_program_name)
 version = v2
 server_container_port = 8000
@@ -35,6 +36,7 @@ aws-docker-login:
 
 build-base: $(base_dockerfile)
 	docker build -t $(base_image_name) - < $(base_dockerfile)
+	docker tag $(base_image_name) $(simple_base_image_name)
 
 build-server: $(server_dockerfile)
 	docker build -f $(server_dockerfile) -t $(server_image_name):latest .
@@ -82,6 +84,9 @@ build-client-for-windows-amd64:
 
 run-client:
 	$(client_program_name)
+
+run-second-client:
+	$(client_program_name) --root_dir=test-target2
 
 build-and-run-client: build-client run-client
 

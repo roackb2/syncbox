@@ -2,7 +2,6 @@ package syncbox
 
 import (
 	"database/sql"
-	"fmt"
 	"os"
 	"reflect"
 	"regexp"
@@ -81,7 +80,7 @@ type DB struct {
 func NewDB(tables ...interface{}) (*DB, error) {
 	db := &DB{
 		DBConfig: AWSDBConfig,
-		Logger:   NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogError, GlobalLogDebug),
+		Logger:   NewDefaultLogger(),
 	}
 	conn, err := sql.Open("mysql", db.User+":"+db.Password+"@tcp("+db.Host+":"+db.Port+")/"+db.Database+"?charset=utf8")
 	if err != nil {
@@ -112,7 +111,7 @@ func (db *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
 	if len(args) == 0 || (len(args) == 1 && args[0] == nil) {
 		res, err = stmt.Exec()
 	} else {
-		res, err = stmt.Exec(args)
+		res, err = stmt.Exec(args...)
 	}
 	if err != nil {
 		db.LogDebug("error executing statement: %v\n", err)
@@ -147,7 +146,6 @@ func (q *Query) copy(q2 *Query) {
 		q2Field := q2Val.Field(i)
 		switch q2Field.Kind() {
 		case reflect.String:
-			fmt.Printf("")
 			q1Field.SetString(q2Field.String())
 		case reflect.Int:
 			q1Field.SetInt(q2Field.Int())
@@ -182,7 +180,6 @@ func (q *Query) Where(condition string) *Query {
 // Exec executes the query
 func (q *Query) Exec() (*sql.Rows, error) {
 	stmt := q.SelectClause + q.FromClause + q.WhereClause
-	fmt.Printf("stmt: %v\n", stmt)
 	rows, err := q.db.Query(stmt)
 	if err != nil {
 		return nil, err

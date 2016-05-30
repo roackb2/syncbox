@@ -74,6 +74,15 @@ func NewDir(info os.FileInfo, path string) *Dir {
 	}
 }
 
+// NewEmptyDir instantiates a Dir with empty ContentChecksum, to make Compare works with empty dir
+func NewEmptyDir() *Dir {
+	return &Dir{
+		Object: &Object{
+			ContentChecksum: Checksum([16]byte{}),
+		},
+	}
+}
+
 // NewFile instantiate File
 func NewFile(info os.FileInfo, path string) *File {
 	return &File{
@@ -126,7 +135,7 @@ func (fs Files) MarshalJSON() ([]byte, error) {
 	for checksum, file := range fs {
 		strMap[string(checksum[:])] = file
 	}
-	return json.Marshal(strMap)
+	return json.MarshalIndent(strMap, "", "\t")
 }
 
 // UnmarshalJSON implements the json interface
@@ -152,7 +161,7 @@ func (ds Dirs) MarshalJSON() ([]byte, error) {
 	for checksum, dir := range ds {
 		strMap[string(checksum[:])] = dir
 	}
-	return json.Marshal(strMap)
+	return json.MarshalIndent(strMap, "", "\t")
 }
 
 // UnmarshalJSON json interface
@@ -173,7 +182,7 @@ func (ds *Dirs) UnmarshalJSON(data []byte) error {
 
 // ToJSON converts Dir to JSON string
 func (dir *Dir) ToJSON() (string, error) {
-	jsonBytes, err := json.Marshal(dir)
+	jsonBytes, err := json.MarshalIndent(dir, "", "\t")
 	if err != nil {
 		return "", err
 	}

@@ -8,4 +8,5 @@ var (
 	ErrorUnknownRequestType = errors.New("unknown request type")
 	ErrorPeerSocketClosed   = errors.New("peer socket closed")
 	ErrorExceedsAddrLength  = errors.New("exceeds address length")
+	ErrorNoFileRecords      = errors.New("no file records found")
 )

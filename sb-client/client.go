@@ -42,7 +42,7 @@ type Client struct {
 
 // NewClient instantiates a Client
 func NewClient() (*Client, error) {
-	logger := syncbox.NewLogger(syncbox.DefaultAppPrefix, syncbox.GlobalLogInfo, syncbox.GlobalLogError, syncbox.GlobalLogDebug)
+	logger := syncbox.NewDefaultLogger()
 
 	connector, err := syncbox.NewClientConnector()
 	if err != nil {
@@ -61,16 +61,8 @@ func NewClient() (*Client, error) {
 		Logger:          logger,
 		ClientConnector: connector,
 		Cmd:             cmd,
-		OldDir: &syncbox.Dir{
-			Object: &syncbox.Object{
-				ContentChecksum: syncbox.Checksum([16]byte{}),
-			},
-		},
-		NewDir: &syncbox.Dir{
-			Object: &syncbox.Object{
-				ContentChecksum: syncbox.Checksum([16]byte{}),
-			},
-		},
+		OldDir:          syncbox.NewEmptyDir(),
+		NewDir:          syncbox.NewEmptyDir(),
 	}, nil
 }
 
@@ -166,7 +158,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			eHandler(err)
 		}
 		// client.LogDebug("before SendFileRequest")
-		res, err := peer.SendFileRequest(client.Username, sReq.File, fileBytes)
+		res, err := peer.SendFileRequest(client.Username, client.Password, sReq.File, fileBytes)
 		// client.LogDebug("response of SendFileRequest:\n%v\n", res)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
@@ -234,7 +226,7 @@ func (client *Client) Scan() error {
 	}
 
 	// client.LogInfo("sending digest request to server")
-	res, err := client.ClientConnector.Peer.SendDigestRequest(client.Username, client.NewDir)
+	res, err := client.ClientConnector.Peer.SendDigestRequest(client.Username, client.Password, client.NewDir)
 	if err != nil {
 		client.LogError("error on send: %v\n", err)
 		return err

@@ -31,7 +31,8 @@ const (
 	MessageAccept = "ACCEPT"
 	MessageDeny   = "DENY"
 
-	SyncboxServerUsernam = "SYNCBOX-SERVER"
+	SyncboxServerUsername = "SYNCBOX-SERVER"
+	SyncboxServerPwd      = "SYNCBOX-SERVER-PWD"
 )
 
 // Packet is a fixed length message as the basic element to send acrosss network
@@ -173,12 +174,14 @@ func Deserialize(packets []Packet) []byte {
 // Request structure for request
 type Request struct {
 	Username string
+	Password string
 	DataType string
 	Data     []byte
 }
 
 func (req *Request) String() string {
 	str := fmt.Sprintf("Username: %v\n", req.Username)
+	str += fmt.Sprintf("Password: %v\n", req.Password)
 	str += fmt.Sprintf("DataType: %v\n", req.DataType)
 	str += fmt.Sprintf("Data: %v\n", string(req.Data))
 	return str

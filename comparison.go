@@ -1,16 +1,18 @@
 package syncbox
 
+import "strings"
+
 // Compare should compare to directories and let syncer to deal with the file tree difference.
 // This function assumes values of walked of all nodes in dirs are false.
 // The caller should give empty string to the path variable
-func Compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) error {
-	err := compare(path, oldDir, newDir, syncer, peer)
+func Compare(oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) error {
+	err := compare(oldDir.Path, newDir.Path, oldDir, newDir, syncer, peer)
 	oldDir.ResetWalked()
 	newDir.ResetWalked()
 	return err
 }
 
-func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) error {
+func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) error {
 	if oldDir.ContentChecksum == newDir.ContentChecksum {
 		return nil
 	}
@@ -20,12 +22,12 @@ func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) e
 		targetDir, exists := newDir.Dirs[checksum]
 		if exists {
 			targetDir.walked = true
-			err := Compare(path, dir, targetDir, syncer, peer)
+			err := compare(oldRootPath, newRootPath, dir, targetDir, syncer, peer)
 			if err != nil {
 				return err
 			}
 		} else {
-			err := syncer.DeleteDir(path, dir, peer) //walkSubDir(dir, handleRemovedFile)
+			err := syncer.DeleteDir(strings.TrimLeft(dir.Path, oldRootPath), dir, peer)
 			if err != nil {
 				return err
 			}
@@ -37,7 +39,7 @@ func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) e
 		if dir.walked {
 			continue
 		}
-		err := syncer.AddDir(path, dir, peer) //walkSubDir(dir, handleNewFile)
+		err := syncer.AddDir(strings.TrimLeft(dir.Path, newRootPath), dir, peer)
 		if err != nil {
 			return err
 		}
@@ -48,7 +50,7 @@ func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) e
 			targetFile.walked = true
 			continue
 		} else {
-			err := syncer.DeleteFile(path, file, peer)
+			err := syncer.DeleteFile(strings.TrimLeft(file.Path, oldRootPath), file, peer)
 			if err != nil {
 				return err
 			}
@@ -58,7 +60,7 @@ func compare(path string, oldDir *Dir, newDir *Dir, syncer Syncer, peer *Peer) e
 		if file.walked {
 			continue
 		}
-		err := syncer.AddFile(path, file, peer)
+		err := syncer.AddFile(strings.TrimLeft(file.Path, newRootPath), file, peer)
 		if err != nil {
 			return err
 		}

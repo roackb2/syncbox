@@ -1,6 +1,7 @@
 package syncbox
 
 import (
+	"crypto/md5"
 	"flag"
 	"fmt"
 	"os"
@@ -25,10 +26,14 @@ func ParseCommand() (*Cmd, error) {
 	usernamePtr := flag.String("Username", "hello", "Username to login")
 	passwordPtr := flag.String("Password", "world", "password to login")
 	flag.Parse()
+	var pwdSlice []byte
+	copy(pwdSlice, *passwordPtr)
+	hash := md5.Sum(pwdSlice)
+	pwd := string(hash[:])
 	return &Cmd{
 		RootDir:  *rootDirPtr,
 		Username: *usernamePtr,
-		Password: *passwordPtr,
+		Password: pwd,
 	}, nil
 }
 

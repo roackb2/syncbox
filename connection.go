@@ -49,6 +49,8 @@ type ClientConnector struct {
 type Peer struct {
 	*Hub
 	Username string
+	Password string
+	Device   string
 	RefGraph *RefGraph
 }
 
@@ -63,6 +65,7 @@ type ConnectionHandler interface {
 	LogInfo(string, ...interface{})
 	LogDebug(string, ...interface{})
 	LogError(string, ...interface{})
+	LogVerbose(string, ...interface{})
 }
 
 // RequestHandler function type for server to handle requests
@@ -83,7 +86,7 @@ func NewServerConnector() (*ServerConnector, error) {
 			ServerHost: IPAnywhere,
 			ServerPort: DefaultServerPort,
 			ServerAddr: addr,
-			Logger:     NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogError, GlobalLogDebug),
+			Logger:     NewDefaultLogger(),
 		},
 		Clients: make(map[*net.TCPAddr]*Peer),
 	}, nil
@@ -101,17 +104,18 @@ func NewClientConnector() (*ClientConnector, error) {
 			ServerHost: ServerHost,
 			ServerPort: DefaultServerPort,
 			ServerAddr: addr,
-			Logger:     NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogError, GlobalLogDebug),
+			Logger:     NewDefaultLogger(),
 		},
 		ClientPort: DefaultClientPort,
 	}, nil
 }
 
 // NewPeer instantiates a Peer
-func NewPeer(hub *Hub, username string, rg *RefGraph) *Peer {
+func NewPeer(hub *Hub, username string, device string, rg *RefGraph) *Peer {
 	return &Peer{
 		Hub:      hub,
 		Username: username,
+		Device:   device,
 		RefGraph: rg,
 	}
 }
@@ -132,7 +136,7 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 		}
 		addr := conn.RemoteAddr().(*net.TCPAddr)
 		hub := NewHub(conn, handler.HandleError)
-		peer := NewPeer(hub, "", nil)
+		peer := NewPeer(hub, "", addr.String(), nil)
 		sc.Clients[addr] = peer
 
 		go func() {
@@ -157,12 +161,13 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
 		return err
 	}
 	conn, err := net.DialTCP("tcp", clientAddr, cc.ServerAddr)
+	addr := conn.RemoteAddr().(*net.TCPAddr)
 	if err != nil {
 		cc.LogDebug("error on dial: %v\n", err)
 		return err
 	}
 	hub := NewHub(conn, handler.HandleError)
-	cc.Peer = NewPeer(hub, "", nil)
+	cc.Peer = NewPeer(hub, "", addr.String(), nil)
 	go func() {
 		defer func() {
 			conn.Close()
@@ -180,7 +185,6 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
 func HandleRequest(peer *Peer, handler ConnectionHandler) error {
 	for {
 		req, err := peer.Hub.ReceiveRequest()
-		peer.Username = req.Username
 		if err != nil {
 			if err == ErrorEmptyContent || err == io.EOF {
 				// peer socket is closed
@@ -189,7 +193,9 @@ func HandleRequest(peer *Peer, handler ConnectionHandler) error {
 			handler.LogError("error on receiving message: %v\n", err)
 			continue
 		}
-		handler.LogDebug("request data type: %v\n", req.DataType)
+		peer.Username = req.Username
+		peer.Password = req.Password
+		handler.LogVerbose("request data type: %v\n", req.DataType)
 		switch req.DataType {
 		case TypeIdentity:
 			go handler.ProcessIdentity(req, peer, handler.HandleError)

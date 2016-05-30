@@ -10,7 +10,7 @@ const (
 )
 
 // FileManipulator function type that do CRUD on files
-type FileManipulator func(path string, file *File) error
+type FileManipulator func(path string, file *File, peer *Peer) error
 
 // Syncer is the interface to send file CRUD requests
 type Syncer interface {

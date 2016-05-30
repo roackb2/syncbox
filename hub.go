@@ -29,7 +29,7 @@ func NewHub(conn *net.TCPConn, eHandler ErrorHandler) *Hub {
 		InboundResponse:  make(chan []byte),
 		OutboundResponse: make(chan []byte),
 		ErrorHandler:     eHandler,
-		Logger:           NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogError, GlobalLogDebug),
+		Logger:           NewDefaultLogger(),
 	}
 	hub.Setup()
 	return hub
@@ -114,10 +114,10 @@ func (hub *Hub) waitInbound() {
 		message = message[1:len(message)]
 		switch prefix {
 		case RequestPrefix:
-			// hub.LogDebug("inbound request message: %v\n", string(message))
+			hub.LogVerbose("inbound request message: %v\n", string(message))
 			hub.InboundRequest <- message
 		case ResponsePrefix:
-			// hub.LogDebug("inbound response message: %v\n", string(message))
+			hub.LogVerbose("inbound response message: %v\n", string(message))
 			hub.InboundResponse <- message
 		default:
 			hub.ErrorHandler(errors.New("unknown message type: " + string(prefix)))
@@ -130,7 +130,7 @@ func (hub *Hub) waitOutbound() {
 	for {
 		select {
 		case message := <-hub.OutboundRequest:
-			// hub.LogDebug("outbound request message: %v\n", string(message))
+			hub.LogVerbose("outbound request message: %v\n", string(message))
 			message = append(message, ByteDelim)                      // appends delim
 			message = append([]byte{byte(RequestPrefix)}, message...) // unshift request prefix
 			err := hub.writePackets(message)
@@ -139,7 +139,7 @@ func (hub *Hub) waitOutbound() {
 				hub.ErrorHandler(err)
 			}
 		case message := <-hub.OutboundResponse:
-			// hub.LogDebug("outbound response message: %v\n", string(message))
+			hub.LogVerbose("outbound response message: %v\n", string(message))
 			message = append(message, ByteDelim)                       // append delim
 			message = append([]byte{byte(ResponsePrefix)}, message...) // unshift response prefix
 			err := hub.writePackets(message)
@@ -204,7 +204,7 @@ func (hub *Hub) SendRequestForResponse(req *Request) (*Response, error) {
 		hub.LogDebug("error on SendRequest in SendRequestForResponse: %v\n", err)
 		return nil, err
 	}
-	// hub.LogDebug("beofore ReceiveResponse in SendRequestForResponse")
+	hub.LogVerbose("beofore ReceiveResponse in SendRequestForResponse")
 	res, err := hub.ReceiveResponse()
 	if err != nil {
 		hub.LogDebug("error on ReceiveResponse in SendRequestForResponse: %v\n", err)
@@ -214,7 +214,7 @@ func (hub *Hub) SendRequestForResponse(req *Request) (*Response, error) {
 }
 
 // SendIdentityRequest sends a request with data type of user identity
-func (hub *Hub) SendIdentityRequest(username string) (*Response, error) {
+func (hub *Hub) SendIdentityRequest(username string, password string) (*Response, error) {
 	eReq := IdentityRequest{
 		Username: username,
 	}
@@ -224,10 +224,12 @@ func (hub *Hub) SendIdentityRequest(username string) (*Response, error) {
 		return nil, err
 	}
 	req := &Request{
+		Username: username,
+		Password: password,
 		DataType: TypeIdentity,
 		Data:     eReqJSON,
 	}
-	// hub.LogDebug("SendIdentityRequest called, req: %v\n", req)
+	hub.LogVerbose("SendIdentityRequest called, req: %v\n", req)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendIdentityRequest: %v\n", err)
@@ -237,7 +239,7 @@ func (hub *Hub) SendIdentityRequest(username string) (*Response, error) {
 }
 
 // SendDigestRequest sends a request with data type file tree digest
-func (hub *Hub) SendDigestRequest(username string, dir *Dir) (*Response, error) {
+func (hub *Hub) SendDigestRequest(username string, password string, dir *Dir) (*Response, error) {
 	dReq := DigestRequest{
 		Dir: dir,
 	}
@@ -248,10 +250,11 @@ func (hub *Hub) SendDigestRequest(username string, dir *Dir) (*Response, error) 
 	}
 	req := &Request{
 		Username: username,
+		Password: password,
 		DataType: TypeDigest,
 		Data:     dReqJSON,
 	}
-	// hub.LogDebug("SendDigestRequest called, req: %v\n", req)
+	hub.LogVerbose("SendDigestRequest called, req: %v\n", req)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendDigestRequest: %v\n", err)
@@ -261,7 +264,7 @@ func (hub *Hub) SendDigestRequest(username string, dir *Dir) (*Response, error) 
 }
 
 // SendSyncRequest sends a request of data type file operation request
-func (hub *Hub) SendSyncRequest(username string, action string, file *File) (*Response, error) {
+func (hub *Hub) SendSyncRequest(username string, password string, action string, file *File) (*Response, error) {
 	sReq := SyncRequest{
 		Action: action,
 		File:   file,
@@ -273,10 +276,11 @@ func (hub *Hub) SendSyncRequest(username string, action string, file *File) (*Re
 	}
 	req := &Request{
 		Username: username,
+		Password: password,
 		DataType: TypeSyncRequest,
 		Data:     sReqJSON,
 	}
-	// hub.LogDebug("SendSyncRequest called, req: %v\n", req)
+	hub.LogVerbose("SendSyncRequest called, req: %v\n", req)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendSyncRequest: %v\n", err)
@@ -286,7 +290,7 @@ func (hub *Hub) SendSyncRequest(username string, action string, file *File) (*Re
 }
 
 // SendFileRequest sends a request of data type of file content
-func (hub *Hub) SendFileRequest(username string, file *File, content []byte) (*Response, error) {
+func (hub *Hub) SendFileRequest(username string, password string, file *File, content []byte) (*Response, error) {
 	fReq := FileRequest{
 		File:    file,
 		Content: content,
@@ -298,10 +302,11 @@ func (hub *Hub) SendFileRequest(username string, file *File, content []byte) (*R
 	}
 	req := &Request{
 		Username: username,
+		Password: password,
 		DataType: TypeFile,
 		Data:     fReqJSON,
 	}
-	// hub.LogDebug("SendFileRequest called, req: %v\n", req)
+	hub.LogVerbose("SendFileRequest called, req: %v\n", req)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendFileRequest: %v\n", err)

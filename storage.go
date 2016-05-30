@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"io/ioutil"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -37,7 +38,7 @@ func NewStorage() *Storage {
 	return &Storage{
 		Session: sess,
 		Svc:     s3.New(sess),
-		Logger:  NewLogger(DefaultAppPrefix, GlobalLogInfo, GlobalLogError, GlobalLogDebug),
+		Logger:  NewDefaultLogger(),
 	}
 }
 
@@ -132,9 +133,13 @@ func (storage *Storage) Download(path string, bucketName string, objName string)
 	return nil
 }
 
-// ReadInt64 convert bytes to little-endian encoded int
-func ReadInt64(data []byte) (ret int64) {
+func readInt64(data []byte) (ret int64) {
 	buf := bytes.NewBuffer(data)
 	binary.Read(buf, binary.LittleEndian, &ret)
 	return
+}
+
+// ChecksumToNumString converts Checksum to string representation of int64
+func ChecksumToNumString(checksum Checksum) string {
+	return strconv.FormatInt(readInt64(checksum[:]), 10)
 }
