@@ -204,7 +204,6 @@ func (hub *Hub) SendRequestForResponse(req *Request) (*Response, error) {
 		hub.LogDebug("error on SendRequest in SendRequestForResponse: %v\n", err)
 		return nil, err
 	}
-	hub.LogVerbose("beofore ReceiveResponse in SendRequestForResponse")
 	res, err := hub.ReceiveResponse()
 	if err != nil {
 		hub.LogDebug("error on ReceiveResponse in SendRequestForResponse: %v\n", err)
@@ -229,7 +228,7 @@ func (hub *Hub) SendIdentityRequest(username string, password string) (*Response
 		DataType: TypeIdentity,
 		Data:     eReqJSON,
 	}
-	hub.LogVerbose("SendIdentityRequest called, req: %v\n", req)
+	hub.LogVerbose("SendIdentityRequest called, req:\n%v\n", req)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendIdentityRequest: %v\n", err)
@@ -245,7 +244,7 @@ func (hub *Hub) SendDigestRequest(username string, password string, dir *Dir) (*
 	}
 	dReqJSON, err := json.Marshal(dReq)
 	if err != nil {
-		hub.LogDebug("error on json Marshal in SendDigestRequest: %v\n", err)
+		hub.LogDebug("error on json Marshal in SendDigestRequest:%v\n", err)
 		return nil, err
 	}
 	req := &Request{
@@ -254,7 +253,7 @@ func (hub *Hub) SendDigestRequest(username string, password string, dir *Dir) (*
 		DataType: TypeDigest,
 		Data:     dReqJSON,
 	}
-	hub.LogVerbose("SendDigestRequest called, req: %v\n", req)
+	hub.LogVerbose("SendDigestRequest called, req:\n%v\n", req)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendDigestRequest: %v\n", err)
@@ -280,7 +279,7 @@ func (hub *Hub) SendSyncRequest(username string, password string, action string,
 		DataType: TypeSyncRequest,
 		Data:     sReqJSON,
 	}
-	hub.LogVerbose("SendSyncRequest called, req: %v\n", req)
+	hub.LogVerbose("SendSyncRequest called, req:\n%v\n", req)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendSyncRequest: %v\n", err)
@@ -306,7 +305,7 @@ func (hub *Hub) SendFileRequest(username string, password string, file *File, co
 		DataType: TypeFile,
 		Data:     fReqJSON,
 	}
-	hub.LogVerbose("SendFileRequest called, req: %v\n", req)
+	hub.LogVerbose("SendFileRequest called, req:\n%v\n", req)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendFileRequest: %v\n", err)

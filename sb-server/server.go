@@ -166,7 +166,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 	}
 
 	// compare the server side and client side directory, and sync them
-	if err := syncbox.Compare("", oldDir, dReq.Dir, server, peer); err != nil {
+	if err := syncbox.Compare(oldDir, dReq.Dir, server, peer); err != nil {
 		server.LogDebug("error on Compare in ProcessDigest: %v\n", err)
 		eHandler(err)
 	}

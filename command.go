@@ -3,7 +3,6 @@ package syncbox
 import (
 	"crypto/md5"
 	"flag"
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -37,9 +36,6 @@ func ParseCommand() (*Cmd, error) {
 	}, nil
 }
 
-func (c Cmd) String() string {
-	res := fmt.Sprintf("RootDir: %v\n", c.RootDir)
-	res += fmt.Sprintf("Username: %v\n", c.Username)
-	res += fmt.Sprintf("Password: %v\n", c.Password)
-	return res
+func (c *Cmd) String() string {
+	return ToString(c)
 }

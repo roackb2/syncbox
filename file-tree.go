@@ -12,7 +12,7 @@ import (
 
 // constants for files
 const (
-	indent         = "\t" // Constants about files
+	indent         = "\t"
 	DigestFileName = ".sb-digest.json"
 	TestDir        = "/test-target"
 	DsStore        = ".DS_Store"

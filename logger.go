@@ -14,7 +14,7 @@ const (
 	GlobalLogInfo    = true
 	GlobalLogError   = true
 	GlobalLogDebug   = true
-	GlobalLogVerbose = false
+	GlobalLogVerbose = true
 	DefaultAppPrefix = "syncbox"
 )
 

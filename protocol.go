@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"math"
 )
 
@@ -40,6 +39,10 @@ type Packet struct {
 	Size     [PacketAddrSize]byte // size is the maximun number of Sequence for packets consist of this message
 	Sequence [PacketAddrSize]byte
 	Data     [PacketDataSize]byte
+}
+
+func (packet *Packet) String() string {
+	return ToString(packet)
 }
 
 // NewPacket instantiates a packet
@@ -180,11 +183,7 @@ type Request struct {
 }
 
 func (req *Request) String() string {
-	str := fmt.Sprintf("Username: %v\n", req.Username)
-	str += fmt.Sprintf("Password: %v\n", req.Password)
-	str += fmt.Sprintf("DataType: %v\n", req.DataType)
-	str += fmt.Sprintf("Data: %v\n", string(req.Data))
-	return str
+	return ToString(req)
 }
 
 // Response structure for response
@@ -195,10 +194,7 @@ type Response struct {
 }
 
 func (res *Response) String() string {
-	str := fmt.Sprintf("Status: %v\n", res.Status)
-	str += fmt.Sprintf("Message: %v\n", res.Message)
-	str += fmt.Sprintf("Data: %v\n", string(res.Data))
-	return str
+	return ToString(res)
 }
 
 // IdentityRequest is the Request data type of user identity
@@ -207,8 +203,7 @@ type IdentityRequest struct {
 }
 
 func (req *IdentityRequest) String() string {
-	str := fmt.Sprintf("Username: %v\n", req.Username)
-	return str
+	return ToString(req)
 }
 
 // DigestRequest is the Request data type of a file tree digest
@@ -217,8 +212,7 @@ type DigestRequest struct {
 }
 
 func (req *DigestRequest) String() string {
-	str := fmt.Sprintf("Dir: %v\n", req.Dir)
-	return str
+	return ToString(req)
 }
 
 // SyncRequest is the Request data type of a file CRUD request
@@ -228,9 +222,7 @@ type SyncRequest struct {
 }
 
 func (req *SyncRequest) String() string {
-	str := fmt.Sprintf("Action: %v\n", req.Action)
-	str += fmt.Sprintf("File: %v\n", req.File)
-	return str
+	return ToString(req)
 }
 
 // FileRequest is the Request data type of CRUD on file content
@@ -240,9 +232,7 @@ type FileRequest struct {
 }
 
 func (req *FileRequest) String() string {
-	str := fmt.Sprintf("File: %v\n", req.File)
-	str += fmt.Sprintf("Content: %v\n", string(req.Content))
-	return str
+	return ToString(req)
 }
 
 // ToJSON converts request to JSON string
