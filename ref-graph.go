@@ -26,11 +26,10 @@ func NewRefGraph(username string, password string, db *DB) (*RefGraph, error) {
 		return nil, err
 	}
 	if len(*(userTableSlice)) == 0 {
-		res, err := db.Exec("INSERT INTO user (username, password) VALUES (?, ?)", username, password)
+		_, err := db.Exec("INSERT INTO user (username, password) VALUES (?, ?)", username, password)
 		if err != nil {
 			return nil, err
 		}
-		rg.LogDebug("insert user result: %v\n", res)
 		if err := userQuery.Select("*").From("user").Where("username='" + username + "'").Populate(userTableSlice); err != nil {
 			return nil, err
 		}
@@ -81,11 +80,10 @@ func (rg *RefGraph) GetRefCount() (int, error) {
 
 // AddFileRecord add a record to file table
 func (rg *RefGraph) AddFileRecord(file *File, path string, device string) error {
-	fileRes, err := rg.DB.Exec("INSERT INTO file (checksum, user_id) VALUES (?, ?)", ChecksumToNumString(file.ContentChecksum), rg.User.ID)
+	_, err := rg.DB.Exec("INSERT INTO file (checksum, user_id) VALUES (?, ?)", ChecksumToNumString(file.ContentChecksum), rg.User.ID)
 	if err != nil {
 		return err
 	}
-	rg.LogDebug("insert file result: %v\n", fileRes)
 
 	if err := rg.UpdateRecords(); err != nil {
 		return err
@@ -104,11 +102,10 @@ func (rg *RefGraph) AddFileRefRecord(file *File, path string, device string) err
 	}
 	fileRecord := (*fileRecords)[0]
 
-	fileRefRes, err := rg.DB.Exec("INSERT INTO file_ref (user_id, file_id, path, device) VALUES (?, ?, ?, ?)", rg.User.ID, fileRecord.ID, path, device)
+	_, err = rg.DB.Exec("INSERT INTO file_ref (user_id, file_id, path, device) VALUES (?, ?, ?, ?)", rg.User.ID, fileRecord.ID, path, device)
 	if err != nil {
 		return err
 	}
-	rg.LogDebug("insert file ref result: %v\n", fileRefRes)
 
 	if err := rg.UpdateRecords(); err != nil {
 		return err
@@ -127,11 +124,10 @@ func (rg *RefGraph) DeleteFileRecord(file *File, device string, path string) err
 	}
 	fileRecord := (*fileRecords)[0]
 
-	fileRes, err := rg.DB.Exec("DELETE FROM file WHERE id=?", fileRecord.ID)
+	_, err = rg.DB.Exec("DELETE FROM file WHERE id=?", fileRecord.ID)
 	if err != nil {
 		return err
 	}
-	rg.LogDebug("delete file result: %v\n", fileRes)
 
 	if err := rg.UpdateRecords(); err != nil {
 		return err
@@ -153,11 +149,10 @@ func (rg *RefGraph) DeleteFileRefRecord(file *File, device string, path string) 
 	}
 	fileRecord := (*fileRecords)[0]
 
-	fileRefRes, err := rg.DB.Exec("DELETE FROM file_ref WHERE file_id=?", fileRecord.ID)
+	_, err = rg.DB.Exec("DELETE FROM file_ref WHERE file_id=?", fileRecord.ID)
 	if err != nil {
 		return err
 	}
-	rg.LogDebug("delete file ref result: %v\n", fileRefRes)
 
 	if err := rg.UpdateRecords(); err != nil {
 		return err

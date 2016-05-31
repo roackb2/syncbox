@@ -71,6 +71,7 @@ func (hub *Hub) readPackets() ([]byte, error) {
 		var bufferArr [PacketTotalSize]byte
 		copy(bufferArr[:], buffer)
 		packet := RebornPacket(bufferArr)
+		hub.LogVerbose("packet: %v\n", packet)
 		packets = append(packets, *packet)
 		size, err := packet.GetSize()
 		if err != nil {
@@ -85,7 +86,7 @@ func (hub *Hub) readPackets() ([]byte, error) {
 		}
 	}
 	data := Deserialize(packets)
-	data = bytes.Trim(data, string([]byte{0})) // trim trailing zero char in last packet
+	data = bytes.TrimRight(data, string([]byte{0})) // trim trailing zero char in last packet
 	return data, nil
 }
 
@@ -213,7 +214,7 @@ func (hub *Hub) SendRequestForResponse(req *Request) (*Response, error) {
 }
 
 // SendIdentityRequest sends a request with data type of user identity
-func (hub *Hub) SendIdentityRequest(username string, password string) (*Response, error) {
+func (hub *Hub) SendIdentityRequest(username string, password string, device string) (*Response, error) {
 	eReq := IdentityRequest{
 		Username: username,
 	}
@@ -225,6 +226,7 @@ func (hub *Hub) SendIdentityRequest(username string, password string) (*Response
 	req := &Request{
 		Username: username,
 		Password: password,
+		Device:   device,
 		DataType: TypeIdentity,
 		Data:     eReqJSON,
 	}
@@ -238,7 +240,7 @@ func (hub *Hub) SendIdentityRequest(username string, password string) (*Response
 }
 
 // SendDigestRequest sends a request with data type file tree digest
-func (hub *Hub) SendDigestRequest(username string, password string, dir *Dir) (*Response, error) {
+func (hub *Hub) SendDigestRequest(username string, password string, device string, dir *Dir) (*Response, error) {
 	dReq := DigestRequest{
 		Dir: dir,
 	}
@@ -250,6 +252,7 @@ func (hub *Hub) SendDigestRequest(username string, password string, dir *Dir) (*
 	req := &Request{
 		Username: username,
 		Password: password,
+		Device:   device,
 		DataType: TypeDigest,
 		Data:     dReqJSON,
 	}
@@ -263,10 +266,11 @@ func (hub *Hub) SendDigestRequest(username string, password string, dir *Dir) (*
 }
 
 // SendSyncRequest sends a request of data type file operation request
-func (hub *Hub) SendSyncRequest(username string, password string, action string, file *File) (*Response, error) {
+func (hub *Hub) SendSyncRequest(username string, password string, device string, path string, action string, file *File) (*Response, error) {
 	sReq := SyncRequest{
 		Action: action,
 		File:   file,
+		Path:   path,
 	}
 	sReqJSON, err := json.Marshal(sReq)
 	if err != nil {
@@ -276,6 +280,7 @@ func (hub *Hub) SendSyncRequest(username string, password string, action string,
 	req := &Request{
 		Username: username,
 		Password: password,
+		Device:   device,
 		DataType: TypeSyncRequest,
 		Data:     sReqJSON,
 	}
@@ -289,9 +294,10 @@ func (hub *Hub) SendSyncRequest(username string, password string, action string,
 }
 
 // SendFileRequest sends a request of data type of file content
-func (hub *Hub) SendFileRequest(username string, password string, file *File, content []byte) (*Response, error) {
+func (hub *Hub) SendFileRequest(username string, password string, device string, path string, file *File, content []byte) (*Response, error) {
 	fReq := FileRequest{
 		File:    file,
+		Path:    path,
 		Content: content,
 	}
 	fReqJSON, err := json.Marshal(fReq)
@@ -302,6 +308,7 @@ func (hub *Hub) SendFileRequest(username string, password string, file *File, co
 	req := &Request{
 		Username: username,
 		Password: password,
+		Device:   device,
 		DataType: TypeFile,
 		Data:     fReqJSON,
 	}

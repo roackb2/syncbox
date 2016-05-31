@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
+	"net"
 	"strings"
 	"time"
 	// "time"
@@ -38,6 +39,7 @@ type Client struct {
 	*syncbox.ClientConnector
 	OldDir *syncbox.Dir
 	NewDir *syncbox.Dir
+	Device string
 }
 
 // NewClient instantiates a Client
@@ -57,12 +59,25 @@ func NewClient() (*Client, error) {
 	}
 	logger.LogInfo("command:\n%v\n", cmd)
 
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		logger.LogDebug("error on get net interfaces: %v\n", err)
+		return nil, err
+	}
+	macAddr := ""
+	for _, inter := range interfaces {
+		if inter.Name == "en0" {
+			macAddr = inter.HardwareAddr.String()
+		}
+	}
+
 	return &Client{
 		Logger:          logger,
 		ClientConnector: connector,
 		Cmd:             cmd,
 		OldDir:          syncbox.NewEmptyDir(),
 		NewDir:          syncbox.NewEmptyDir(),
+		Device:          macAddr,
 	}, nil
 }
 
@@ -123,7 +138,13 @@ func (client *Client) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 		client.LogDebug("error on Unmarshal in ProcessDigest: %v\n", err)
 		eHandler(err)
 	}
-	// client.LogDebug("client ProcessDigest called, req: %v\n", dReq)
+	client.LogVerbose("client ProcessDigest called, req: %v\n", dReq)
+
+	if err := syncbox.Compare(client.NewDir, dReq.Dir, client, peer); err != nil {
+		client.LogDebug("error on Compare in ProcessDigest: %v\n", err)
+		eHandler(err)
+	}
+
 	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
@@ -158,7 +179,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			eHandler(err)
 		}
 		// client.LogDebug("before SendFileRequest")
-		res, err := peer.SendFileRequest(client.Username, client.Password, sReq.File, fileBytes)
+		res, err := peer.SendFileRequest(client.Username, client.Password, client.Device, sReq.Path, sReq.File, fileBytes)
 		// client.LogDebug("response of SendFileRequest:\n%v\n", res)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
@@ -176,6 +197,15 @@ func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 		client.LogDebug("error on Unmarshal in ProcessFile: %v\n", err)
 		eHandler(err)
 	}
+
+	// server.LogDebug("filename: %v\ncontent: %v\n", filename, content)
+	filePath := client.RootDir + dReq.Path + dReq.File.Name
+	client.LogVerbose("path in ProcessFile: %v\n", filePath)
+	// if err := ioutil.WriteFile(filePath, dReq.Content, dReq.File.Mode); err != nil {
+	// 	client.LogDebug("error on CreateObject in ProcessFile: %v\n", err)
+	// 	eHandler(err)
+	// }
+
 	// client.LogDebug("client ProcessFile called, req: %v\n", dReq)
 	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
@@ -184,6 +214,40 @@ func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 		client.LogDebug("error on SendResponse in ProcessFile: %v\n", err)
 		eHandler(err)
 	}
+}
+
+// AddFile implements the Syncer interface
+func (client *Client) AddFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
+	res, err := peer.SendSyncRequest(client.Username, client.Password, client.Device, path, syncbox.ActionGet, file)
+	if err != nil {
+		client.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
+		return err
+	}
+	client.LogDebug("response for SendSyncRequest in AddFile: %v\n", res)
+	return nil
+}
+
+// DeleteFile implements the Syncer interface
+func (client *Client) DeleteFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
+	filePath := client.RootDir + path + file.Name
+	client.LogVerbose("filePath in DeleteFile: %v\n", filePath)
+	// return os.Remove(filePath)
+	return nil
+}
+
+// AddDir implements the Syncer interface
+func (client *Client) AddDir(path string, dir *syncbox.Dir, peer *syncbox.Peer) error {
+	return syncbox.WalkSubDir(path, dir, peer, client.AddFile)
+}
+
+// DeleteDir implements the Syncer interface
+func (client *Client) DeleteDir(path string, dir *syncbox.Dir, peer *syncbox.Peer) error {
+	return syncbox.WalkSubDir(path, dir, peer, client.DeleteFile)
+}
+
+// GetFile implements the Syncer interface
+func (client *Client) GetFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
+	return nil
 }
 
 // Scan through the target, write digest file on disk and send to server
@@ -226,7 +290,7 @@ func (client *Client) Scan() error {
 	}
 
 	// client.LogInfo("sending digest request to server")
-	res, err := client.ClientConnector.Peer.SendDigestRequest(client.Username, client.Password, client.NewDir)
+	res, err := client.ClientConnector.Peer.SendDigestRequest(client.Username, client.Password, client.Device, client.NewDir)
 	if err != nil {
 		client.LogError("error on send: %v\n", err)
 		return err

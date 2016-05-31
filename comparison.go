@@ -27,7 +27,7 @@ func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, s
 				return err
 			}
 		} else {
-			err := syncer.DeleteDir(strings.TrimLeft(dir.Path, oldRootPath), dir, peer)
+			err := syncer.DeleteDir(strings.Replace(dir.Path, oldRootPath, "", 1), dir, peer)
 			if err != nil {
 				return err
 			}
@@ -39,7 +39,7 @@ func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, s
 		if dir.walked {
 			continue
 		}
-		err := syncer.AddDir(strings.TrimLeft(dir.Path, newRootPath), dir, peer)
+		err := syncer.AddDir(strings.Replace(dir.Path, newRootPath, "", 1), dir, peer)
 		if err != nil {
 			return err
 		}
@@ -50,7 +50,7 @@ func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, s
 			targetFile.walked = true
 			continue
 		} else {
-			err := syncer.DeleteFile(strings.TrimLeft(file.Path, oldRootPath), file, peer)
+			err := syncer.DeleteFile(strings.Replace(file.Path, oldRootPath, "", 1), file, peer)
 			if err != nil {
 				return err
 			}
@@ -60,7 +60,7 @@ func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, s
 		if file.walked {
 			continue
 		}
-		err := syncer.AddFile(strings.TrimLeft(file.Path, newRootPath), file, peer)
+		err := syncer.AddFile(strings.Replace(file.Path, newRootPath, "", 1), file, peer)
 		if err != nil {
 			return err
 		}
@@ -77,4 +77,21 @@ func (dir *Dir) ResetWalked() {
 	for _, file := range dir.Files {
 		file.walked = false
 	}
+}
+
+// WalkSubDir walks recursively through sub folders and files and do operations on the files
+func WalkSubDir(path string, dir *Dir, peer *Peer, manipulator FileManipulator) error {
+	for _, dir := range dir.Dirs {
+		err := WalkSubDir(path, dir, peer, manipulator)
+		if err != nil {
+			return err
+		}
+	}
+	for _, file := range dir.Files {
+		err := manipulator(path, file, peer)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

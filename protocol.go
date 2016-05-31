@@ -13,8 +13,8 @@ const (
 	ResponsePrefix = 's'
 
 	PacketDataSize  = 1024
-	PacketAddrSize  = 4 // roughly allow 4000 GB message size
-	PacketTotalSize = 1032
+	PacketAddrSize  = 8 // roughly allow 4000 GB message size
+	PacketTotalSize = 1040
 
 	ByteDelim   = byte(4)
 	StringDelim = string(ByteDelim)
@@ -32,6 +32,7 @@ const (
 
 	SyncboxServerUsername = "SYNCBOX-SERVER"
 	SyncboxServerPwd      = "SYNCBOX-SERVER-PWD"
+	SyncboxServerDevice   = "SYNCBOX-SERVER-DEVICE"
 )
 
 // Packet is a fixed length message as the basic element to send acrosss network
@@ -46,7 +47,7 @@ func (packet *Packet) String() string {
 }
 
 // NewPacket instantiates a packet
-func NewPacket(size int, sequence int, data [PacketDataSize]byte) (*Packet, error) {
+func NewPacket(size int64, sequence int64, data [PacketDataSize]byte) (*Packet, error) {
 	packet := &Packet{
 		Data: data,
 	}
@@ -59,7 +60,7 @@ func NewPacket(size int, sequence int, data [PacketDataSize]byte) (*Packet, erro
 	return packet, nil
 }
 
-func intToBinary(num uint32) ([]byte, error) {
+func intToBinary(num int64) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, num)
 	if err != nil {
@@ -68,59 +69,65 @@ func intToBinary(num uint32) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func binaryToInt(bin []byte) (uint32, error) {
-	var num uint32
+func binaryToInt(bin []byte) (int64, error) {
+	var num int64
 	buf := bytes.NewReader(bin)
 	err := binary.Read(buf, binary.LittleEndian, &num)
 	if err != nil {
-		return math.MaxInt32, err
+		return 0, err
 	}
 	return num, nil
 }
 
 // SetSize sets the total message size to the packet,
 // maximum size is 2 ^ (PacketAddrSize * 8)
-func (packet *Packet) SetSize(size int) error {
-	bytes, err := intToBinary(uint32(size))
+func (packet *Packet) SetSize(size int64) error {
+	bytes, err := intToBinary(size)
 	if err != nil {
 		return err
 	}
 	if len(bytes) > PacketAddrSize {
+		// fmt.Printf("bytes length: %v\n", len(bytes))
 		return ErrorExceedsAddrLength
 	}
 	copy(packet.Size[:], bytes)
+	// fmt.Printf("in SetSize, size: %v\nbytes: %v\n", size, bytes)
 	return nil
 }
 
 // GetSize gets the size of the packet
-func (packet *Packet) GetSize() (int, error) {
+func (packet *Packet) GetSize() (int64, error) {
 	num, err := binaryToInt(packet.Size[:])
 	if err != nil {
-		return -math.MaxInt16, err
+		return 0, err
 	}
-	return int(num), nil
+	// fmt.Printf("in GetSize, size: %v\nbytes: %v\n", num, packet.Size)
+	return num, nil
 }
 
 // SetSequence sets the sequence of the packet
-func (packet *Packet) SetSequence(sequence int) error {
-	bytes, err := intToBinary(uint32(sequence))
+func (packet *Packet) SetSequence(sequence int64) error {
+	bytes, err := intToBinary(sequence)
 	if err != nil {
 		return err
 	}
 	if len(bytes) > PacketAddrSize {
+		// fmt.Printf("bytes length: %v\n", len(bytes))
 		return ErrorExceedsAddrLength
 	}
 	copy(packet.Sequence[:], bytes)
+	// fmt.Printf("in SetSequence, sequence: %v\nbytes: %v\n", sequence, bytes)
 	return nil
 }
 
 // GetSequence get sequence of the packet
-func (packet *Packet) GetSequence() (int, error) {
+func (packet *Packet) GetSequence() (int64, error) {
 	num, err := binaryToInt(packet.Sequence[:])
 	if err != nil {
-		return -math.MaxInt16, err
+		return 0, err
 	}
-	return int(num), nil
+	// fmt.Printf("in GetSequence, sequence: %v\nbytes: %v\n", num, packet.Sequence)
+	return num, nil
 }
 
 // ToBytes transfer a Packet to fixed length byte array
@@ -143,9 +150,11 @@ func RebornPacket(data [PacketTotalSize]byte) *Packet {
 
 // Serialize transfer some data (a request/response) to series of packets
 func Serialize(data []byte) ([]Packet, error) {
-	size := int(math.Ceil(float64(len(data)) / PacketDataSize))
+	size := int64(math.Ceil(float64(len(data)) / PacketDataSize))
 	var packets []Packet
-	for sequence := 0; sequence < size; sequence++ {
+	var sequence int64
+	for sequence = 0; sequence < size; sequence++ {
+		// fmt.Printf("in Serialize: size: %v\nsequence: %v\n", size, sequence)
 		var payload [PacketDataSize]byte
 		if sequence == size-1 {
 			copy(payload[:], data[sequence*PacketDataSize:len(data)])
@@ -178,6 +187,7 @@ func Deserialize(packets []Packet) []byte {
 type Request struct {
 	Username string
 	Password string
+	Device   string
 	DataType string
 	Data     []byte
 }
@@ -219,6 +229,7 @@ func (req *DigestRequest) String() string {
 type SyncRequest struct {
 	Action string
 	File   *File
+	Path   string
 }
 
 func (req *SyncRequest) String() string {
@@ -228,6 +239,7 @@ func (req *SyncRequest) String() string {
 // FileRequest is the Request data type of CRUD on file content
 type FileRequest struct {
 	File    *File
+	Path    string
 	Content []byte
 }
 

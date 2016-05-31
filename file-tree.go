@@ -18,6 +18,11 @@ const (
 	DsStore        = ".DS_Store"
 )
 
+// variables default time
+var (
+	DefaultTime = time.Date(0, time.January, 0, 0, 0, 0, 0, time.UTC)
+)
+
 // Checksum alias [16]byte to Checksum
 type Checksum [16]byte
 
@@ -79,6 +84,7 @@ func NewEmptyDir() *Dir {
 	return &Dir{
 		Object: &Object{
 			ContentChecksum: Checksum([16]byte{}),
+			ModTime:         DefaultTime,
 		},
 	}
 }

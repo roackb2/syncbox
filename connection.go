@@ -51,6 +51,7 @@ type Peer struct {
 	Username string
 	Password string
 	Device   string
+	Address  *net.TCPAddr
 	RefGraph *RefGraph
 }
 
@@ -111,11 +112,12 @@ func NewClientConnector() (*ClientConnector, error) {
 }
 
 // NewPeer instantiates a Peer
-func NewPeer(hub *Hub, username string, device string, rg *RefGraph) *Peer {
+func NewPeer(hub *Hub, username string, device string, addr *net.TCPAddr, rg *RefGraph) *Peer {
 	return &Peer{
 		Hub:      hub,
 		Username: username,
 		Device:   device,
+		Address:  addr,
 		RefGraph: rg,
 	}
 }
@@ -136,7 +138,7 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 		}
 		addr := conn.RemoteAddr().(*net.TCPAddr)
 		hub := NewHub(conn, handler.HandleError)
-		peer := NewPeer(hub, "", addr.String(), nil)
+		peer := NewPeer(hub, "", "", addr, nil)
 		sc.Clients[addr] = peer
 
 		go func() {
@@ -161,13 +163,13 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
 		return err
 	}
 	conn, err := net.DialTCP("tcp", clientAddr, cc.ServerAddr)
-	addr := conn.RemoteAddr().(*net.TCPAddr)
 	if err != nil {
 		cc.LogDebug("error on dial: %v\n", err)
 		return err
 	}
 	hub := NewHub(conn, handler.HandleError)
-	cc.Peer = NewPeer(hub, "", addr.String(), nil)
+	addr := conn.RemoteAddr().(*net.TCPAddr)
+	cc.Peer = NewPeer(hub, "", "", addr, nil)
 	go func() {
 		defer func() {
 			conn.Close()
@@ -195,6 +197,7 @@ func HandleRequest(peer *Peer, handler ConnectionHandler) error {
 		}
 		peer.Username = req.Username
 		peer.Password = req.Password
+		peer.Device = req.Device
 		handler.LogVerbose("request data type: %v\n", req.DataType)
 		switch req.DataType {
 		case TypeIdentity:

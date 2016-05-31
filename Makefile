@@ -90,6 +90,8 @@ run-second-client:
 
 build-and-run-client: build-client run-client
 
+build-and-run-second-client: build-client run-second-client
+
 
 
 build: build-base build-server build-client
