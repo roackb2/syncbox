@@ -30,7 +30,7 @@ git-merge-dev:
 	git checkout dev
 
 show-loc:
-	cloc . --exclude-dir=vendor,.idea,Godeps,test-target,test-target2,test-target-backup
+	cloc . --exclude-dir=vendor,.idea,Godeps,test-target,test-target2,test-target-backup,.vscode
 
 aws-docker-login:
 	$(ecr_get_login)
