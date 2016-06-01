@@ -7,9 +7,9 @@ import (
 	"io/ioutil"
 	"math"
 	"net"
+	"os"
 	"strings"
 	"time"
-	// "time"
 
 	"github.com/roackb2/syncbox"
 )
@@ -37,9 +37,10 @@ type Client struct {
 	*syncbox.Logger
 	*syncbox.Cmd
 	*syncbox.ClientConnector
-	OldDir *syncbox.Dir
-	NewDir *syncbox.Dir
-	Device string
+	OldDir  *syncbox.Dir
+	NewDir  *syncbox.Dir
+	Device  string
+	fileOps int
 }
 
 // NewClient instantiates a Client
@@ -78,7 +79,24 @@ func NewClient() (*Client, error) {
 		OldDir:          syncbox.NewEmptyDir(),
 		NewDir:          syncbox.NewEmptyDir(),
 		Device:          macAddr,
+		fileOps:         0,
 	}, nil
+}
+
+// IncreaseFileOp increase the fileOps variable
+func (client *Client) IncreaseFileOp() {
+	client.fileOps++
+}
+
+// DecreaseFileOp decrease the fileOps variable
+func (client *Client) DecreaseFileOp() {
+	client.fileOps--
+}
+
+// CouldScan examines whether fileOps is zero to determine is there any syncing operations not finished
+func (client *Client) CouldScan() bool {
+	client.LogDebug("fileOps: %v\n", client.fileOps)
+	return client.fileOps == 0
 }
 
 // Start runs a client main program
@@ -90,13 +108,15 @@ func (client *Client) Start() error {
 	}
 	for i := 0; i < MaxScanCount; i++ {
 		time.Sleep(ScanPeriod)
-		if err := client.Scan(); err != nil {
-			if err == syncbox.ErrorEmptyContent || err == io.EOF {
-				// peer socket is closed
-				return syncbox.ErrorPeerSocketClosed
+		if client.CouldScan() {
+			if err := client.Scan(); err != nil {
+				if err == syncbox.ErrorEmptyContent || err == io.EOF {
+					// peer socket is closed
+					return syncbox.ErrorPeerSocketClosed
+				}
+				client.LogError("error on scan: %v\n", err)
+				return err
 			}
-			client.LogError("error on scan: %v\n", err)
-			return err
 		}
 	}
 	return nil
@@ -140,10 +160,13 @@ func (client *Client) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 	}
 	client.LogVerbose("client ProcessDigest called, req: %v\n", dReq)
 
-	if err := syncbox.Compare(client.NewDir, dReq.Dir, client, peer); err != nil {
+	clientDir := *(client.NewDir)
+	if err := syncbox.Compare(&clientDir, dReq.Dir, client, peer); err != nil {
 		client.LogDebug("error on Compare in ProcessDigest: %v\n", err)
 		eHandler(err)
 	}
+	client.OldDir = dReq.Dir
+	client.NewDir = dReq.Dir
 
 	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
@@ -179,7 +202,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			eHandler(err)
 		}
 		// client.LogDebug("before SendFileRequest")
-		res, err := peer.SendFileRequest(client.Username, client.Password, client.Device, sReq.Path, sReq.File, fileBytes)
+		res, err := peer.SendFileRequest(client.Username, client.Password, client.Device, sReq.UnrootPath, sReq.File, fileBytes)
 		// client.LogDebug("response of SendFileRequest:\n%v\n", res)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
@@ -199,12 +222,13 @@ func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 	}
 
 	// server.LogDebug("filename: %v\ncontent: %v\n", filename, content)
-	filePath := client.RootDir + dReq.Path + dReq.File.Name
+	filePath := client.rebornPath(dReq.UnrootPath)
 	client.LogVerbose("path in ProcessFile: %v\n", filePath)
-	// if err := ioutil.WriteFile(filePath, dReq.Content, dReq.File.Mode); err != nil {
-	// 	client.LogDebug("error on CreateObject in ProcessFile: %v\n", err)
-	// 	eHandler(err)
-	// }
+	if err := ioutil.WriteFile(filePath, dReq.Content, dReq.File.Mode); err != nil {
+		client.LogDebug("error on CreateObject in ProcessFile: %v\n", err)
+		eHandler(err)
+	}
+	client.DecreaseFileOp()
 
 	// client.LogDebug("client ProcessFile called, req: %v\n", dReq)
 	if err := peer.SendResponse(&syncbox.Response{
@@ -217,8 +241,10 @@ func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 }
 
 // AddFile implements the Syncer interface
-func (client *Client) AddFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
-	res, err := peer.SendSyncRequest(client.Username, client.Password, client.Device, path, syncbox.ActionGet, file)
+func (client *Client) AddFile(rootPath string, unrootPath string, file *syncbox.File, peer *syncbox.Peer) error {
+	client.LogVerbose("AddFile, rootPath: %v, unrootPath: %v, file path: %v", rootPath, unrootPath, file.Path)
+	client.IncreaseFileOp()
+	res, err := peer.SendSyncRequest(client.Username, client.Password, client.Device, unrootPath, syncbox.ActionGet, file)
 	if err != nil {
 		client.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
 		return err
@@ -228,26 +254,32 @@ func (client *Client) AddFile(path string, file *syncbox.File, peer *syncbox.Pee
 }
 
 // DeleteFile implements the Syncer interface
-func (client *Client) DeleteFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
-	filePath := client.RootDir + path + file.Name
+func (client *Client) DeleteFile(rootPath string, unrootPath string, file *syncbox.File, peer *syncbox.Peer) error {
+	client.LogVerbose("DeleteFile, rootPath: %v, unrootPath: %v, file path: %v", rootPath, unrootPath, file.Path)
+	client.IncreaseFileOp()
+	filePath := client.rebornPath(unrootPath)
 	client.LogVerbose("filePath in DeleteFile: %v\n", filePath)
-	// return os.Remove(filePath)
+	if err := os.Remove(filePath); err != nil {
+		return err
+	}
+	client.DecreaseFileOp()
 	return nil
 }
 
 // AddDir implements the Syncer interface
-func (client *Client) AddDir(path string, dir *syncbox.Dir, peer *syncbox.Peer) error {
-	return syncbox.WalkSubDir(path, dir, peer, client.AddFile)
+func (client *Client) AddDir(rootPath string, unrootPath string, dir *syncbox.Dir, peer *syncbox.Peer) error {
+	if err := os.Mkdir(client.rebornPath(unrootPath), dir.Mode); err != nil {
+		return err
+	}
+	return syncbox.WalkSubDir(rootPath, dir, peer, client.AddFile, client.AddDir)
 }
 
 // DeleteDir implements the Syncer interface
-func (client *Client) DeleteDir(path string, dir *syncbox.Dir, peer *syncbox.Peer) error {
-	return syncbox.WalkSubDir(path, dir, peer, client.DeleteFile)
-}
-
-// GetFile implements the Syncer interface
-func (client *Client) GetFile(path string, file *syncbox.File, peer *syncbox.Peer) error {
-	return nil
+func (client *Client) DeleteDir(rootPath string, unrootPath string, dir *syncbox.Dir, peer *syncbox.Peer) error {
+	if err := syncbox.WalkSubDir(rootPath, dir, peer, client.DeleteFile, client.DeleteDir); err != nil {
+		return err
+	}
+	return os.RemoveAll(client.rebornPath(unrootPath))
 }
 
 // Scan through the target, write digest file on disk and send to server
@@ -314,4 +346,8 @@ func (client *Client) WriteDigest() error {
 		return err
 	}
 	return nil
+}
+
+func (client *Client) rebornPath(unrootPath string) string {
+	return client.RootDir + unrootPath
 }

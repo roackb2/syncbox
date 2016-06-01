@@ -17,7 +17,7 @@ func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, s
 		return nil
 	}
 	// for all directories in the old dir, if also exists in new dir, compare them,
-	// if not present in new dir, send delete request to server
+	// if not present in new dir, send delete request to peer
 	for checksum, dir := range oldDir.Dirs {
 		targetDir, exists := newDir.Dirs[checksum]
 		if exists {
@@ -27,19 +27,21 @@ func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, s
 				return err
 			}
 		} else {
-			err := syncer.DeleteDir(strings.Replace(dir.Path, oldRootPath, "", 1), dir, peer)
+			unrootPath := strings.Replace(dir.Path, oldRootPath, "", 1)
+			err := syncer.DeleteDir(oldRootPath, unrootPath, dir, peer)
 			if err != nil {
 				return err
 			}
 		}
 	}
 	// for all directories in new dir that has not been walked,
-	// send add request to server
+	// send add request to peer
 	for _, dir := range newDir.Dirs {
 		if dir.walked {
 			continue
 		}
-		err := syncer.AddDir(strings.Replace(dir.Path, newRootPath, "", 1), dir, peer)
+		unrootPath := strings.Replace(dir.Path, newRootPath, "", 1)
+		err := syncer.AddDir(newRootPath, unrootPath, dir, peer)
 		if err != nil {
 			return err
 		}
@@ -50,7 +52,8 @@ func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, s
 			targetFile.walked = true
 			continue
 		} else {
-			err := syncer.DeleteFile(strings.Replace(file.Path, oldRootPath, "", 1), file, peer)
+			unrootPath := strings.Replace(file.Path, oldRootPath, "", 1)
+			err := syncer.DeleteFile(oldRootPath, unrootPath, file, peer)
 			if err != nil {
 				return err
 			}
@@ -60,7 +63,8 @@ func compare(oldRootPath string, newRootPath string, oldDir *Dir, newDir *Dir, s
 		if file.walked {
 			continue
 		}
-		err := syncer.AddFile(strings.Replace(file.Path, newRootPath, "", 1), file, peer)
+		unrootPath := strings.Replace(file.Path, newRootPath, "", 1)
+		err := syncer.AddFile(newRootPath, unrootPath, file, peer)
 		if err != nil {
 			return err
 		}
@@ -80,16 +84,16 @@ func (dir *Dir) ResetWalked() {
 }
 
 // WalkSubDir walks recursively through sub folders and files and do operations on the files
-func WalkSubDir(path string, dir *Dir, peer *Peer, manipulator FileManipulator) error {
-	for _, dir := range dir.Dirs {
-		err := WalkSubDir(path, dir, peer, manipulator)
-		if err != nil {
+func WalkSubDir(rootPath string, dir *Dir, peer *Peer, fm FileManipulator, dm DirManipulator) error {
+	for _, subDir := range dir.Dirs {
+		unrootPath := strings.Replace(subDir.Path, rootPath, "", 1)
+		if err := dm(rootPath, unrootPath, subDir, peer); err != nil {
 			return err
 		}
 	}
 	for _, file := range dir.Files {
-		err := manipulator(path, file, peer)
-		if err != nil {
+		unrootPath := strings.Replace(file.Path, rootPath, "", 1)
+		if err := fm(rootPath, unrootPath, file, peer); err != nil {
 			return err
 		}
 	}

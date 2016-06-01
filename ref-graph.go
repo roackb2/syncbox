@@ -48,10 +48,13 @@ func (rg *RefGraph) UpdateRecords() error {
 	if err := rg.GetFileRecords(); err != nil {
 		return err
 	}
+	// rg.LogVerbose("file records count after GetFileRecords: %v\n", len(rg.FileRecords))
 
 	if err := rg.GetFileRefRecords(); err != nil {
 		return err
 	}
+	// rg.LogVerbose("file ref records count after GetFileRecords: %v\n", len(rg.FileRefRecords))
+
 	return nil
 }
 
@@ -79,7 +82,7 @@ func (rg *RefGraph) GetRefCount() (int, error) {
 }
 
 // AddFileRecord add a record to file table
-func (rg *RefGraph) AddFileRecord(file *File, path string, device string) error {
+func (rg *RefGraph) AddFileRecord(file *File) error {
 	_, err := rg.DB.Exec("INSERT INTO file (checksum, user_id) VALUES (?, ?)", ChecksumToNumString(file.ContentChecksum), rg.User.ID)
 	if err != nil {
 		return err
@@ -115,16 +118,8 @@ func (rg *RefGraph) AddFileRefRecord(file *File, path string, device string) err
 }
 
 // DeleteFileRecord deletes a record in file table
-func (rg *RefGraph) DeleteFileRecord(file *File, device string, path string) error {
-	query := NewQuery(rg.DB)
-	fileRecords := &[]*FileTable{}
-	err := query.Select("*").From("file").Where("checksum='" + ChecksumToNumString(file.ContentChecksum) + "'").Populate(fileRecords)
-	if err != nil {
-		return err
-	}
-	fileRecord := (*fileRecords)[0]
-
-	_, err = rg.DB.Exec("DELETE FROM file WHERE id=?", fileRecord.ID)
+func (rg *RefGraph) DeleteFileRecord(fileRecord *FileTable) error {
+	_, err := rg.DB.Exec("DELETE FROM file WHERE id=?", fileRecord.ID)
 	if err != nil {
 		return err
 	}
@@ -137,7 +132,7 @@ func (rg *RefGraph) DeleteFileRecord(file *File, device string, path string) err
 }
 
 // DeleteFileRefRecord deletes a record in file_ref table
-func (rg *RefGraph) DeleteFileRefRecord(file *File, device string, path string) error {
+func (rg *RefGraph) DeleteFileRefRecord(file *File) error {
 	query := NewQuery(rg.DB)
 	fileRecords := &[]*FileTable{}
 	err := query.Select("*").From("file").Where("checksum='" + ChecksumToNumString(file.ContentChecksum) + "'").Populate(fileRecords)

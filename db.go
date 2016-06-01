@@ -52,11 +52,11 @@ type FileTable struct {
 
 // FileRefTable stores edges that connects from file tree nodes to files
 type FileRefTable struct {
-	ID     int    `mysql:"id,pk,auto_increment"`
-	UserID int    `mysql:"user_id,fk=user.id"`
-	FileID int    `mysql:"file_id,fk=file.id"`
-	Path   string `mysql:"path"`
-	Device string `mysql:"device"`
+	ID     int    `mysql:"id,unique,auto_increment"`
+	UserID int    `mysql:"user_id,pk,fk=user.id"`
+	FileID int    `mysql:"file_id,pk,fk=file.id"`
+	Path   string `mysql:"path,pk"`
+	Device string `mysql:"device,pk"`
 }
 
 // DBConfig is the structure for DB configurations
@@ -198,6 +198,7 @@ func (q *Query) Populate(a interface{}) error {
 	if err != nil {
 		return err
 	}
+	records := reflect.MakeSlice(reflect.SliceOf(elemPtr), 0, 0)
 	for rows.Next() {
 		recordPtr := reflect.New(elemType)
 		record := recordPtr.Elem()
@@ -224,8 +225,9 @@ func (q *Query) Populate(a interface{}) error {
 				field.Set(reflect.ValueOf(*fieldList[i].(*int)))
 			}
 		}
-		sliceVal.Set(reflect.Append(sliceVal, recordPtr))
+		records = reflect.Append(records, recordPtr)
 	}
+	sliceVal.Set(records)
 	return nil
 }
 
@@ -236,6 +238,7 @@ func createSchema(table interface{}) (string, error) {
 	tableName := underscore(strings.Replace(structName, "Table", "", 1))
 	stat += tableName + "( "
 	fieldNum := structType.NumField()
+	var primaryKeys []string
 	var constraints []string
 	for i := 0; i < fieldNum; i++ {
 		var fieldName string
@@ -258,8 +261,10 @@ func createSchema(table interface{}) (string, error) {
 		}
 		for _, opt := range opts {
 			switch {
+			case opt == "key":
+				stat += "KEY "
 			case opt == "pk":
-				stat += "PRIMARY KEY "
+				primaryKeys = append(primaryKeys, fieldName)
 			case opt == "auto_increment":
 				stat += "AUTO_INCREMENT "
 			case opt == "unique":
@@ -276,11 +281,17 @@ func createSchema(table interface{}) (string, error) {
 		stat = strings.TrimRight(stat, " ")
 		stat += ", "
 	}
+	stat += "PRIMARY KEY ("
+	for _, pk := range primaryKeys {
+		stat += pk + ", "
+	}
+	stat = strings.TrimRight(stat, ", ")
+	stat += "), "
+
 	for _, constraint := range constraints {
 		stat += constraint + ", "
 	}
-	stat = strings.TrimRight(stat, " ")
-	stat = strings.TrimRight(stat, ",")
+	stat = strings.TrimRight(stat, ", ")
 	stat += ")"
 	return stat, nil
 }

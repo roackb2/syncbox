@@ -16,11 +16,13 @@ const (
 	DigestFileName = ".sb-digest.json"
 	TestDir        = "/test-target"
 	DsStore        = ".DS_Store"
+	GitFolder      = ".git"
 )
 
 // variables default time
 var (
 	DefaultTime = time.Date(0, time.January, 0, 0, 0, 0, 0, time.UTC)
+	IgnoreList  = []string{DigestFileName, DsStore, GitFolder}
 )
 
 // Checksum alias [16]byte to Checksum
@@ -64,7 +66,7 @@ func NewObject(info os.FileInfo, path string) *Object {
 		Mode:            info.Mode(),
 		Name:            info.Name(),
 		Size:            info.Size(),
-		ContentChecksum: Checksum{},
+		ContentChecksum: genEmptyChecksum(),
 		Path:            path,
 		walked:          false,
 	}
@@ -83,7 +85,7 @@ func NewDir(info os.FileInfo, path string) *Dir {
 func NewEmptyDir() *Dir {
 	return &Dir{
 		Object: &Object{
-			ContentChecksum: Checksum([16]byte{}),
+			ContentChecksum: genEmptyChecksum(),
 			ModTime:         DefaultTime,
 		},
 	}
@@ -250,5 +252,17 @@ func Build(path string) (*Dir, Checksum, error) {
 }
 
 func shouldConsiderFile(name string) bool {
-	return name != DigestFileName && name != DsStore
+	for _, item := range IgnoreList {
+		if name == item {
+			return false
+		}
+	}
+	return true
+}
+
+func genEmptyChecksum() Checksum {
+	checksumArr := md5.Sum(nil)
+	var checksum Checksum
+	copy(checksum[:], checksumArr[:])
+	return checksum
 }

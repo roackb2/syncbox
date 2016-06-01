@@ -227,9 +227,9 @@ func (req *DigestRequest) String() string {
 
 // SyncRequest is the Request data type of a file CRUD request
 type SyncRequest struct {
-	Action string
-	File   *File
-	Path   string
+	Action     string
+	File       *File
+	UnrootPath string
 }
 
 func (req *SyncRequest) String() string {
@@ -238,9 +238,9 @@ func (req *SyncRequest) String() string {
 
 // FileRequest is the Request data type of CRUD on file content
 type FileRequest struct {
-	File    *File
-	Path    string
-	Content []byte
+	File       *File
+	UnrootPath string
+	Content    []byte
 }
 
 func (req *FileRequest) String() string {

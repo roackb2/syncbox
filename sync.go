@@ -10,19 +10,15 @@ const (
 )
 
 // FileManipulator function type that do CRUD on files
-type FileManipulator func(path string, file *File, peer *Peer) error
+type FileManipulator func(rootPath string, unrootPath string, file *File, peer *Peer) error
+
+// DirManipulator function type that do CRUD on dirs
+type DirManipulator func(rootPath string, unrootPath string, dir *Dir, peer *Peer) error
 
 // Syncer is the interface to send file CRUD requests
 type Syncer interface {
-	AddFile(path string, file *File, peer *Peer) error
-	DeleteFile(path string, file *File, peer *Peer) error
-	GetFile(path string, file *File, peer *Peer) error
-	AddDir(path string, dir *Dir, peer *Peer) error
-	DeleteDir(path string, dir *Dir, peer *Peer) error
-}
-
-// FileManipRequest represents operations to do on files
-type FileManipRequest struct {
-	Action string
-	File   *File
+	AddFile(rootPath string, unrootPath string, file *File, peer *Peer) error
+	DeleteFile(rootPath string, unrootPath string, file *File, peer *Peer) error
+	AddDir(rootPath string, unrootPath string, dir *Dir, peer *Peer) error
+	DeleteDir(rootPath string, unrootPath string, dir *Dir, peer *Peer) error
 }

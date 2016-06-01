@@ -19,6 +19,7 @@ sb_db_pwd = $(shell echo $$SB_DB_PWD)
 sb_db_host = $(shell echo $$SB_DB_HOST)
 sb_db_port = $(shell echo $$SB_DB_PORT)
 sb_db_database = $(shell echo $$SB_DB_DATABASE)
+cur_dir = $(shell pwd)
 
 git-merge-dev:
 	git add -A
@@ -29,7 +30,7 @@ git-merge-dev:
 	git checkout dev
 
 show-loc:
-	cloc . --exclude-dir=vendor,.idea,Godeps,test-target
+	cloc . --exclude-dir=vendor,.idea,Godeps,test-target,test-target2,test-target-backup
 
 aws-docker-login:
 	$(ecr_get_login)
@@ -86,7 +87,7 @@ run-client:
 	$(client_program_name)
 
 run-second-client:
-	$(client_program_name) --root_dir=test-target2
+	$(client_program_name) --root_dir=$(cur_dir)/test-target2
 
 build-and-run-client: build-client run-client
 

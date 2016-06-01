@@ -266,11 +266,11 @@ func (hub *Hub) SendDigestRequest(username string, password string, device strin
 }
 
 // SendSyncRequest sends a request of data type file operation request
-func (hub *Hub) SendSyncRequest(username string, password string, device string, path string, action string, file *File) (*Response, error) {
+func (hub *Hub) SendSyncRequest(username string, password string, device string, unrootPath string, action string, file *File) (*Response, error) {
 	sReq := SyncRequest{
-		Action: action,
-		File:   file,
-		Path:   path,
+		Action:     action,
+		File:       file,
+		UnrootPath: unrootPath,
 	}
 	sReqJSON, err := json.Marshal(sReq)
 	if err != nil {
@@ -294,11 +294,11 @@ func (hub *Hub) SendSyncRequest(username string, password string, device string,
 }
 
 // SendFileRequest sends a request of data type of file content
-func (hub *Hub) SendFileRequest(username string, password string, device string, path string, file *File, content []byte) (*Response, error) {
+func (hub *Hub) SendFileRequest(username string, password string, device string, unrootPath string, file *File, content []byte) (*Response, error) {
 	fReq := FileRequest{
-		File:    file,
-		Path:    path,
-		Content: content,
+		File:       file,
+		UnrootPath: unrootPath,
+		Content:    content,
 	}
 	fReqJSON, err := json.Marshal(fReq)
 	if err != nil {
