@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net"
 )
 
@@ -60,19 +61,24 @@ func (hub *Hub) writePackets(bytes []byte) error {
 }
 
 func (hub *Hub) readPackets() ([]byte, error) {
-	var packets []Packet
+	var packets []*Packet
+	lastProgress := 0
 	for {
-		buffer := make([]byte, PacketTotalSize)
-		_, err := (*hub.Conn).Read(buffer)
-		if err != nil {
-			hub.LogDebug("error on readPackets: %v\n", err)
-			return nil, err
+		buffer := make([]byte, PacketTotalSize, PacketTotalSize)
+		readSize := 0
+		// one read perhaps won't read the full packet, loop until a full packet is read
+		for readSize < PacketTotalSize {
+			n, err := (*hub.Conn).Read(buffer[readSize:len(buffer)])
+			if err != nil {
+				hub.LogDebug("error on readPackets: %v\n", err)
+				return nil, err
+			}
+			readSize += n
 		}
 		var bufferArr [PacketTotalSize]byte
 		copy(bufferArr[:], buffer)
 		packet := RebornPacket(bufferArr)
-		hub.LogVerbose("packet: %v\n", packet)
-		packets = append(packets, *packet)
+		packets = append(packets, packet)
 		size, err := packet.GetSize()
 		if err != nil {
 			return nil, err
@@ -80,6 +86,11 @@ func (hub *Hub) readPackets() ([]byte, error) {
 		sequence, err := packet.GetSequence()
 		if err != nil {
 			return nil, err
+		}
+		progress := int(math.Floor(float64(sequence) / float64(size) * 100))
+		if size > 10000 && (progress%10 == 0) && progress != lastProgress {
+			hub.LogInfo("progress reading inbound message: %v%%\n", progress)
+			lastProgress = progress
 		}
 		if sequence >= size-1 {
 			break

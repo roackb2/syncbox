@@ -87,11 +87,9 @@ func (packet *Packet) SetSize(size int64) error {
 		return err
 	}
 	if len(bytes) > PacketAddrSize {
-		// fmt.Printf("bytes length: %v\n", len(bytes))
 		return ErrorExceedsAddrLength
 	}
 	copy(packet.Size[:], bytes)
-	// fmt.Printf("in SetSize, size: %v\nbytes: %v\n", size, bytes)
 	return nil
 }
 
@@ -101,7 +99,6 @@ func (packet *Packet) GetSize() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// fmt.Printf("in GetSize, size: %v\nbytes: %v\n", num, packet.Size)
 	return num, nil
 }
 
@@ -112,11 +109,9 @@ func (packet *Packet) SetSequence(sequence int64) error {
 		return err
 	}
 	if len(bytes) > PacketAddrSize {
-		// fmt.Printf("bytes length: %v\n", len(bytes))
 		return ErrorExceedsAddrLength
 	}
 	copy(packet.Sequence[:], bytes)
-	// fmt.Printf("in SetSequence, sequence: %v\nbytes: %v\n", sequence, bytes)
 	return nil
 }
 
@@ -126,7 +121,6 @@ func (packet *Packet) GetSequence() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// fmt.Printf("in GetSequence, sequence: %v\nbytes: %v\n", num, packet.Sequence)
 	return num, nil
 }
 
@@ -149,12 +143,11 @@ func RebornPacket(data [PacketTotalSize]byte) *Packet {
 }
 
 // Serialize transfer some data (a request/response) to series of packets
-func Serialize(data []byte) ([]Packet, error) {
+func Serialize(data []byte) ([]*Packet, error) {
 	size := int64(math.Ceil(float64(len(data)) / PacketDataSize))
-	var packets []Packet
+	var packets []*Packet
 	var sequence int64
 	for sequence = 0; sequence < size; sequence++ {
-		// fmt.Printf("in Serialize: size: %v\nsequence: %v\n", size, sequence)
 		var payload [PacketDataSize]byte
 		if sequence == size-1 {
 			copy(payload[:], data[sequence*PacketDataSize:len(data)])
@@ -165,17 +158,17 @@ func Serialize(data []byte) ([]Packet, error) {
 		if err != nil {
 			return nil, err
 		}
-		packets = append(packets, *packet)
+		packets = append(packets, packet)
 	}
 	return packets, nil
 }
 
 // Deserialize transfer a series of packets to some data (a request or response)
-func Deserialize(packets []Packet) []byte {
-	packetsCount := len(packets)
-	dataSize := packetsCount * PacketDataSize
+func Deserialize(packets []*Packet) []byte {
+	var packetsCount = int64(len(packets))
+	var dataSize = packetsCount * PacketDataSize
 	data := make([]byte, dataSize)
-	offset := 0
+	var offset int64
 	for _, packet := range packets {
 		copy(data[offset:offset+PacketDataSize], packet.Data[:])
 		offset += PacketDataSize
