@@ -165,8 +165,15 @@ func (client *Client) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 		client.LogDebug("error on Compare in ProcessDigest: %v\n", err)
 		eHandler(err)
 	}
+
+	// update the client side file tree representation and digest file to newest status,
+	// to prevent ping pong sync
 	client.OldDir = dReq.Dir
 	client.NewDir = dReq.Dir
+	if err := client.WriteDigest(); err != nil {
+		client.LogError("error on writing digest file in ProcessDigest: %v\n", err)
+		eHandler(err)
+	}
 
 	if err := peer.SendResponse(&syncbox.Response{
 		Status:  syncbox.StatusOK,
@@ -203,7 +210,6 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 		}
 		// client.LogDebug("before SendFileRequest")
 		res, err := peer.SendFileRequest(client.Username, client.Password, client.Device, sReq.UnrootPath, sReq.File, fileBytes)
-		// client.LogDebug("response of SendFileRequest:\n%v\n", res)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
 			eHandler(err)
@@ -249,7 +255,7 @@ func (client *Client) AddFile(rootPath string, unrootPath string, file *syncbox.
 		client.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
 		return err
 	}
-	client.LogDebug("response for SendSyncRequest in AddFile: %v\n", res)
+	client.LogDebug("response of SendSyncRequest in AddFile:\n%v\n", res)
 	return nil
 }
 
@@ -328,7 +334,7 @@ func (client *Client) Scan() error {
 		return err
 	}
 
-	client.LogInfo("response of SendDigestRequest: \n%v\n", res)
+	client.LogInfo("response of SendDigestRequest:\n%v\n", res)
 	return nil
 }
 

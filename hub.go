@@ -226,6 +226,7 @@ func (hub *Hub) SendRequestForResponse(req *Request) (*Response, error) {
 
 // SendIdentityRequest sends a request with data type of user identity
 func (hub *Hub) SendIdentityRequest(username string, password string, device string) (*Response, error) {
+	hub.LogDebug("SendIdentityRequest called,\nusername: %v, password: %v, device: %v\n", username, password, device)
 	eReq := IdentityRequest{
 		Username: username,
 	}
@@ -252,6 +253,7 @@ func (hub *Hub) SendIdentityRequest(username string, password string, device str
 
 // SendDigestRequest sends a request with data type file tree digest
 func (hub *Hub) SendDigestRequest(username string, password string, device string, dir *Dir) (*Response, error) {
+	hub.LogDebug("SendDigestRequest called,\nusername: %v, password: %v, device: %v,\ndir checksum: %v\n", username, password, device, dir.ContentChecksum)
 	dReq := DigestRequest{
 		Dir: dir,
 	}
@@ -278,6 +280,7 @@ func (hub *Hub) SendDigestRequest(username string, password string, device strin
 
 // SendSyncRequest sends a request of data type file operation request
 func (hub *Hub) SendSyncRequest(username string, password string, device string, unrootPath string, action string, file *File) (*Response, error) {
+	hub.LogDebug("SendSyncRequest called,\nusername: %v, password: %v, device: %v,\nunrootPath: %v,\naction: %v,\n, file checksum: %v\n", username, password, device, unrootPath, action, file.ContentChecksum)
 	sReq := SyncRequest{
 		Action:     action,
 		File:       file,
@@ -306,6 +309,7 @@ func (hub *Hub) SendSyncRequest(username string, password string, device string,
 
 // SendFileRequest sends a request of data type of file content
 func (hub *Hub) SendFileRequest(username string, password string, device string, unrootPath string, file *File, content []byte) (*Response, error) {
+	hub.LogDebug("SendFileRequest called,\nusername: %v, password: %v, device: %v,\nunrootPath: %v,\n file checksum: %v,\n content length: %v\n", username, password, device, unrootPath, file.ContentChecksum, len(content))
 	fReq := FileRequest{
 		File:       file,
 		UnrootPath: unrootPath,
