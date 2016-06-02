@@ -48,12 +48,10 @@ func (rg *RefGraph) UpdateRecords() error {
 	if err := rg.GetFileRecords(); err != nil {
 		return err
 	}
-	// rg.LogVerbose("file records count after GetFileRecords: %v\n", len(rg.FileRecords))
 
 	if err := rg.GetFileRefRecords(); err != nil {
 		return err
 	}
-	// rg.LogVerbose("file ref records count after GetFileRecords: %v\n", len(rg.FileRefRecords))
 
 	return nil
 }

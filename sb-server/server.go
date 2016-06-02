@@ -247,7 +247,7 @@ func (server *Server) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			server.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
 			eHandler(err)
 		}
-		server.LogInfo("response of SendFileRequest: %v\n", res)
+		server.LogInfo("response of SendFileRequest:\n%v\n", res)
 	}
 }
 
