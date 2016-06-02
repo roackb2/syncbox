@@ -7,7 +7,7 @@ aws_default_region = us-east-1
 simple_base_image_name=go-base
 base_image_name = $(docker_registry)/$(simple_base_image_name)
 server_image_name = $(docker_registry)/$(server_program_name)
-version = v4
+version = v3
 server_container_port = 8000
 ecr_get_login = $(shell aws ecr get-login --region $(aws_default_region))
 docker_registry = $(shell echo $$SB_DOCKER_REGISTRY)
@@ -20,7 +20,6 @@ sb_db_host = $(shell echo $$SB_DB_HOST)
 sb_db_port = $(shell echo $$SB_DB_PORT)
 sb_db_database = $(shell echo $$SB_DB_DATABASE)
 cur_dir = $(shell pwd)
-tmp_dir = $(shell echo $$TMPDIR)
 
 git-merge-dev:
 	git add -A
@@ -31,7 +30,7 @@ git-merge-dev:
 	git checkout dev
 
 show-loc:
-	cloc . --exclude-dir=vendor,.idea,Godeps,test-target,test-target2,test-target-backup,.vscode
+	cloc . --exclude-dir=vendor,.idea,Godeps,test-target,test-target2,test-target-backup
 
 aws-docker-login:
 	$(ecr_get_login)
@@ -88,7 +87,7 @@ run-client:
 	$(client_program_name)
 
 run-second-client:
-	$(client_program_name) --root_dir=$(cur_dir)/test-target2 --tmp_dir=$(tmp_dir)syncbox2
+	$(client_program_name) --root_dir=$(cur_dir)/test-target2
 
 build-and-run-client: build-client run-client
 

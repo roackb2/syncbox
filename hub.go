@@ -7,30 +7,51 @@ import (
 	"io"
 	"math"
 	"net"
+	"time"
+)
+
+// constants about connection retry
+const (
+	SendRequestRestPeriod  = 1 * time.Second
+	SendRequestMaxRetry    = 10
+	SendResponseRestPeriod = 1 * time.Second
+	SendResponseMaxRetry   = 10
 )
 
 // Hub is the network reading/writing hub for request/reponse,
 // it's the lowest level entry point for network connection
 type Hub struct {
 	*Logger
-	Conn             *net.TCPConn
-	InboundRequest   chan []byte
-	OutboundRequest  chan []byte
-	InboundResponse  chan []byte
-	OutboundResponse chan []byte
-	ErrorHandler     ErrorHandler
+	Conn                   *net.TCPConn
+	InboundRequest         chan []byte
+	OutboundRequest        chan []byte
+	InboundResponse        chan []byte
+	OutboundResponse       chan []byte
+	InboundRequestError    chan error
+	InboundResponseError   chan error
+	OutboundRequestFinish  chan bool
+	OutboundRequestError   chan error
+	OutboundResponseFinish chan bool
+	OutboundResponseError  chan error
+	ErrorHandler           ErrorHandler
 }
 
 // NewHub instantiates a Hub
 func NewHub(conn *net.TCPConn, eHandler ErrorHandler) *Hub {
 	hub := &Hub{
-		Conn:             conn,
-		InboundRequest:   make(chan []byte),
-		OutboundRequest:  make(chan []byte),
-		InboundResponse:  make(chan []byte),
-		OutboundResponse: make(chan []byte),
-		ErrorHandler:     eHandler,
-		Logger:           NewDefaultLogger(),
+		Conn:                   conn,
+		InboundRequest:         make(chan []byte),
+		OutboundRequest:        make(chan []byte),
+		InboundResponse:        make(chan []byte),
+		OutboundResponse:       make(chan []byte),
+		InboundRequestError:    make(chan error),
+		InboundResponseError:   make(chan error),
+		OutboundRequestFinish:  make(chan bool),
+		OutboundRequestError:   make(chan error),
+		OutboundResponseFinish: make(chan bool),
+		OutboundResponseError:  make(chan error),
+		ErrorHandler:           eHandler,
+		Logger:                 NewDefaultLogger(),
 	}
 	hub.Setup()
 	return hub
@@ -113,9 +134,9 @@ func (hub *Hub) waitInbound() {
 				hub.Conn.Close()
 				return
 			}
-			hub.LogDebug("error in waitInbound: %v\n", err)
-			hub.ErrorHandler(err)
-			continue
+			hub.LogVerbose("error in waitInbound: %v\n", err)
+			// hub.ErrorHandler(err)
+			// continue
 		}
 		if len(message) == 0 {
 			hub.LogDebug("peer socket closed\n")
@@ -123,6 +144,19 @@ func (hub *Hub) waitInbound() {
 			return
 		}
 		prefix := message[0]
+		if err != nil {
+			switch prefix {
+			case RequestPrefix:
+				hub.LogVerbose("inbound request error: %v\n", err)
+				hub.InboundRequestError <- err
+			case ResponsePrefix:
+				hub.LogVerbose("inbound response error: %v\n", err)
+				hub.InboundResponseError <- err
+			default:
+				hub.ErrorHandler(errors.New("unknown message type: " + string(prefix)))
+			}
+			continue
+		}
 		message = message[1:len(message)]
 		switch prefix {
 		case RequestPrefix:
@@ -148,7 +182,10 @@ func (hub *Hub) waitOutbound() {
 			err := hub.writePackets(message)
 			if err != nil {
 				hub.LogDebug("error on writePackets in waitOutbound: %v\n", err)
-				hub.ErrorHandler(err)
+				hub.OutboundRequestError <- err
+				// hub.ErrorHandler(err)
+			} else {
+				hub.OutboundRequestFinish <- true
 			}
 		case message := <-hub.OutboundResponse:
 			hub.LogVerbose("outbound response message: %v\n", string(message))
@@ -157,7 +194,10 @@ func (hub *Hub) waitOutbound() {
 			err := hub.writePackets(message)
 			if err != nil {
 				hub.LogDebug("error on writePackets in waitOutbound: %v\n", err)
-				hub.ErrorHandler(err)
+				hub.OutboundResponseError <- err
+				// hub.ErrorHandler(err)
+			} else {
+				hub.OutboundResponseFinish <- true
 			}
 		}
 	}
@@ -165,41 +205,54 @@ func (hub *Hub) waitOutbound() {
 
 // ReceiveRequest blocks until is a inbound request
 func (hub *Hub) ReceiveRequest() (*Request, error) {
-	bytes := <-hub.InboundRequest
-	var req Request
-	err := json.Unmarshal(bytes, &req)
-	if err != nil {
-		hub.LogDebug("error on json Unmarshal in ReceiveRequest: %v\n", err)
+	select {
+	case bytes := <-hub.InboundRequest:
+		var req Request
+		err := json.Unmarshal(bytes, &req)
+		if err != nil {
+			hub.LogDebug("error on json Unmarshal in ReceiveRequest: %v\n", err)
+			return nil, err
+		}
+		return &req, nil
+	case err := <-hub.InboundRequestError:
 		return nil, err
 	}
-	return &req, nil
+
 }
 
 // ReceiveResponse blocks until there is a inbound response
 func (hub *Hub) ReceiveResponse() (*Response, error) {
-	bytes := <-hub.InboundResponse
-	var res Response
-	err := json.Unmarshal(bytes, &res)
-	if err != nil {
-		hub.LogDebug("error on json Unmarshal in ReceiveResponse: %v\n", err)
+	select {
+	case bytes := <-hub.InboundResponse:
+		var res Response
+		err := json.Unmarshal(bytes, &res)
+		if err != nil {
+			hub.LogDebug("error on json Unmarshal in ReceiveResponse: %v\n", err)
+			return nil, err
+		}
+		return &res, nil
+	case err := <-hub.InboundResponseError:
 		return nil, err
 	}
-	return &res, nil
+
 }
 
-// SendRequest sends a request to the hub
-func (hub *Hub) SendRequest(req *Request) error {
+func (hub *Hub) sendRequest(req *Request) error {
 	bytes, err := json.Marshal(req)
 	if err != nil {
 		hub.LogDebug("error on json Marshal in SendRequest: %v\n", err)
 		return err
 	}
 	hub.OutboundRequest <- bytes
-	return nil
+	select {
+	case <-hub.OutboundRequestFinish:
+		return nil
+	case err := <-hub.OutboundRequestError:
+		return err
+	}
 }
 
-// SendResponse sends a response to the hub
-func (hub *Hub) SendResponse(req *Request, res *Response) error {
+func (hub *Hub) sendResponse(req *Request, res *Response) error {
 	res.RequestID = req.ID
 	bytes, err := json.Marshal(res)
 	if err != nil {
@@ -207,7 +260,42 @@ func (hub *Hub) SendResponse(req *Request, res *Response) error {
 		return err
 	}
 	hub.OutboundResponse <- bytes
-	return nil
+	select {
+	case <-hub.OutboundResponseFinish:
+		return nil
+	case err := <-hub.OutboundResponseError:
+		return err
+	}
+}
+
+// SendRequest sends a request to the hub
+func (hub *Hub) SendRequest(req *Request) error {
+	var err error
+	for i := 0; i < SendRequestMaxRetry; i++ {
+		err = hub.sendRequest(req)
+		if err != nil {
+			hub.LogDebug("error SendRequest,\n request id: %v,\n error: %v,\n retry count: %v\n ", req.ID, err, i)
+			time.Sleep(SendRequestRestPeriod)
+		} else {
+			break
+		}
+	}
+	return err
+}
+
+// SendResponse sends a response to the hub
+func (hub *Hub) SendResponse(req *Request, res *Response) error {
+	var err error
+	for i := 0; i < SendResponseMaxRetry; i++ {
+		err = hub.sendResponse(req, res)
+		if err != nil {
+			hub.LogDebug("error SendResponse,\n request id: %v,\n error: %v,\n retry count: %v\n ", req.ID, err, i)
+			time.Sleep(SendResponseRestPeriod)
+		} else {
+			break
+		}
+	}
+	return err
 }
 
 // SendRequestForResponse sends a request and waits for response
