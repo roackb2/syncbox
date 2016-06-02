@@ -199,7 +199,8 @@ func (hub *Hub) SendRequest(req *Request) error {
 }
 
 // SendResponse sends a response to the hub
-func (hub *Hub) SendResponse(res *Response) error {
+func (hub *Hub) SendResponse(req *Request, res *Response) error {
+	res.RequestID = req.ID
 	bytes, err := json.Marshal(res)
 	if err != nil {
 		hub.LogDebug("error on json Marshal in SendResponse: %v\n", err)
@@ -226,7 +227,6 @@ func (hub *Hub) SendRequestForResponse(req *Request) (*Response, error) {
 
 // SendIdentityRequest sends a request with data type of user identity
 func (hub *Hub) SendIdentityRequest(username string, password string, device string) (*Response, error) {
-	hub.LogDebug("SendIdentityRequest called,\nusername: %v, password: %v, device: %v\n", username, password, device)
 	eReq := IdentityRequest{
 		Username: username,
 	}
@@ -235,14 +235,8 @@ func (hub *Hub) SendIdentityRequest(username string, password string, device str
 		hub.LogDebug("error on json Marshal in SendIdentityRequest: %v\n", err)
 		return nil, err
 	}
-	req := &Request{
-		Username: username,
-		Password: password,
-		Device:   device,
-		DataType: TypeIdentity,
-		Data:     eReqJSON,
-	}
-	hub.LogVerbose("SendIdentityRequest called, req:\n%v\n", req)
+	req := NewRequest(username, password, device, TypeIdentity, eReqJSON)
+	hub.LogDebug("SendIdentityRequest called,\n request id: %v,\n username: %v, password: %v, device: %v\n", req.ID, username, password, device)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendIdentityRequest: %v\n", err)
@@ -253,7 +247,6 @@ func (hub *Hub) SendIdentityRequest(username string, password string, device str
 
 // SendDigestRequest sends a request with data type file tree digest
 func (hub *Hub) SendDigestRequest(username string, password string, device string, dir *Dir) (*Response, error) {
-	hub.LogDebug("SendDigestRequest called,\nusername: %v, password: %v, device: %v,\ndir checksum: %v\n", username, password, device, dir.ContentChecksum)
 	dReq := DigestRequest{
 		Dir: dir,
 	}
@@ -262,14 +255,8 @@ func (hub *Hub) SendDigestRequest(username string, password string, device strin
 		hub.LogDebug("error on json Marshal in SendDigestRequest:%v\n", err)
 		return nil, err
 	}
-	req := &Request{
-		Username: username,
-		Password: password,
-		Device:   device,
-		DataType: TypeDigest,
-		Data:     dReqJSON,
-	}
-	hub.LogVerbose("SendDigestRequest called, req:\n%v\n", req)
+	req := NewRequest(username, password, device, TypeDigest, dReqJSON)
+	hub.LogDebug("SendDigestRequest called,\n request id: %v,\n username: %v, password: %v, device: %v,\n dir checksum: %v\n", req.ID, username, password, device, dir.ContentChecksum)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendDigestRequest: %v\n", err)
@@ -280,7 +267,6 @@ func (hub *Hub) SendDigestRequest(username string, password string, device strin
 
 // SendSyncRequest sends a request of data type file operation request
 func (hub *Hub) SendSyncRequest(username string, password string, device string, unrootPath string, action string, file *File) (*Response, error) {
-	hub.LogDebug("SendSyncRequest called,\nusername: %v, password: %v, device: %v,\nunrootPath: %v,\naction: %v,\n, file checksum: %v\n", username, password, device, unrootPath, action, file.ContentChecksum)
 	sReq := SyncRequest{
 		Action:     action,
 		File:       file,
@@ -291,14 +277,8 @@ func (hub *Hub) SendSyncRequest(username string, password string, device string,
 		hub.LogDebug("error on json Marshal in SendSyncRequest: %v\n", err)
 		return nil, err
 	}
-	req := &Request{
-		Username: username,
-		Password: password,
-		Device:   device,
-		DataType: TypeSyncRequest,
-		Data:     sReqJSON,
-	}
-	hub.LogVerbose("SendSyncRequest called, req:\n%v\n", req)
+	req := NewRequest(username, password, device, TypeSyncRequest, sReqJSON)
+	hub.LogDebug("SendSyncRequest called,\n request id: %v,\n username: %v, password: %v, device: %v,\n unrootPath: %v,\n action: %v,\n file checksum: %v\n", req.ID, username, password, device, unrootPath, action, file.ContentChecksum)
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendSyncRequest: %v\n", err)
@@ -309,7 +289,6 @@ func (hub *Hub) SendSyncRequest(username string, password string, device string,
 
 // SendFileRequest sends a request of data type of file content
 func (hub *Hub) SendFileRequest(username string, password string, device string, unrootPath string, file *File, content []byte) (*Response, error) {
-	hub.LogDebug("SendFileRequest called,\nusername: %v, password: %v, device: %v,\nunrootPath: %v,\n file checksum: %v,\n content length: %v\n", username, password, device, unrootPath, file.ContentChecksum, len(content))
 	fReq := FileRequest{
 		File:       file,
 		UnrootPath: unrootPath,
@@ -320,14 +299,8 @@ func (hub *Hub) SendFileRequest(username string, password string, device string,
 		hub.LogDebug("error on json Marshal in SendFileRequest: %v\n", err)
 		return nil, err
 	}
-	req := &Request{
-		Username: username,
-		Password: password,
-		Device:   device,
-		DataType: TypeFile,
-		Data:     fReqJSON,
-	}
-	hub.LogVerbose("SendFileRequest called, req:\n%v\n", req)
+	req := NewRequest(username, password, device, TypeFile, fReqJSON)
+	hub.LogDebug("SendFileRequest called,\n request id: %v,\n username: %v, password: %v, device: %v,\n unrootPath: %v,\n file checksum: %v,\n content length: %v\n", req.ID, username, password, device, unrootPath, file.ContentChecksum, len(content))
 	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendFileRequest: %v\n", err)

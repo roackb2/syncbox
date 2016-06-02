@@ -4,12 +4,14 @@ import (
 	"crypto/md5"
 	"flag"
 	"os"
+	"path"
 	"path/filepath"
 )
 
 // Cmd command line options for client program
 type Cmd struct {
 	RootDir  string
+	TmpDir   string
 	Username string
 	Password string
 }
@@ -20,9 +22,12 @@ func ParseCommand() (*Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	tempDir := path.Join(getSystemTempDir(), "syncbox")
 	dir += TestDir
 	rootDirPtr := flag.String("root_dir", dir, "the root directory to watch")
-	usernamePtr := flag.String("Username", "hello", "Username to login")
+	tmpDirPtr := flag.String("tmp_dir", tempDir, "the temporary folder to put files that deleted")
+	usernamePtr := flag.String("Username", "hello", "username to login")
 	passwordPtr := flag.String("Password", "world", "password to login")
 	flag.Parse()
 	var pwdSlice []byte
@@ -31,6 +36,7 @@ func ParseCommand() (*Cmd, error) {
 	pwd := string(hash[:])
 	return &Cmd{
 		RootDir:  *rootDirPtr,
+		TmpDir:   *tmpDirPtr,
 		Username: *usernamePtr,
 		Password: pwd,
 	}, nil
@@ -38,4 +44,12 @@ func ParseCommand() (*Cmd, error) {
 
 func (c *Cmd) String() string {
 	return ToString(c)
+}
+
+func getSystemTempDir() string {
+	tmp := os.Getenv("TMPDIR")
+	if tmp == "" {
+		tmp = "/tmp"
+	}
+	return tmp
 }

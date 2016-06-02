@@ -22,9 +22,9 @@ const (
 
 // Storage structure that use AWS S3
 type Storage struct {
+	*Logger
 	Session *session.Session
 	Svc     *s3.S3
-	Logger  *Logger
 }
 
 // NewStorage instantiate Storage
@@ -49,10 +49,10 @@ func (storage *Storage) CreateBucket(bucketName string) error {
 		Bucket: &bucketName,
 	})
 	if err != nil {
-		storage.Logger.LogDebug("Failed to create bucket", err)
+		storage.LogDebug("Failed to create bucket", err)
 		return err
 	}
-	storage.Logger.LogDebug("create bucket result :%v\n", result)
+	storage.LogDebug("create bucket result :%v\n", result)
 	return nil
 }
 
@@ -65,10 +65,10 @@ func (storage *Storage) CreateObject(bucketName string, objName string, content 
 		Key:    &objName,
 	})
 	if err != nil {
-		storage.Logger.LogDebug("Failed to upload data to %s/%s, %s\n", bucketName, objName, err)
+		storage.LogDebug("Failed to upload data to %s/%s, %s\n", bucketName, objName, err)
 		return err
 	}
-	storage.Logger.LogDebug("create object result: %v\n", result)
+	storage.LogDebug("create object result: %v\n", result)
 	return nil
 }
 
@@ -80,10 +80,10 @@ func (storage *Storage) DeleteObject(bucketName string, objName string) error {
 		Key:    aws.String(objName),
 	})
 	if err != nil {
-		storage.Logger.LogDebug("error on delete object: %v\n", err)
+		storage.LogDebug("error on delete object: %v\n", err)
 		return err
 	}
-	storage.Logger.LogDebug("delete object result: %v\n", result)
+	storage.LogDebug("delete object result: %v\n", result)
 	return nil
 }
 
@@ -114,7 +114,7 @@ func (storage *Storage) Download(path string, bucketName string, objName string)
 	file, err := os.Create("path")
 	defer file.Close()
 	if err != nil {
-		storage.Logger.LogDebug("Failed to create file: %v\n", err)
+		storage.LogDebug("Failed to create file: %v\n", err)
 		return err
 	}
 
@@ -125,11 +125,11 @@ func (storage *Storage) Download(path string, bucketName string, objName string)
 			Key:    aws.String(objName),
 		})
 	if err != nil {
-		storage.Logger.LogDebug("Failed to download file: %v\n", err)
+		storage.LogDebug("Failed to download file: %v\n", err)
 		return err
 	}
 
-	storage.Logger.LogDebug("Downloaded file %v: %v bytes\n", file.Name(), numBytes)
+	storage.LogDebug("Downloaded file %v: %v bytes\n", file.Name(), numBytes)
 	return nil
 }
 

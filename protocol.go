@@ -2,8 +2,10 @@ package syncbox
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"math"
 )
 
@@ -178,6 +180,7 @@ func Deserialize(packets []*Packet) []byte {
 
 // Request structure for request
 type Request struct {
+	ID       string
 	Username string
 	Password string
 	Device   string
@@ -189,11 +192,24 @@ func (req *Request) String() string {
 	return ToString(req)
 }
 
+// NewRequest instantiates a request
+func NewRequest(username string, password string, device string, dataType string, data []byte) *Request {
+	return &Request{
+		ID:       UUID(),
+		Username: username,
+		Password: password,
+		Device:   device,
+		DataType: dataType,
+		Data:     data,
+	}
+}
+
 // Response structure for response
 type Response struct {
-	Status  int
-	Message string
-	Data    []byte
+	RequestID string
+	Status    int
+	Message   string
+	Data      []byte
 }
 
 func (res *Response) String() string {
@@ -276,4 +292,13 @@ func RebornResponse(jsonStr string) (*Response, error) {
 		return nil, err
 	}
 	return &restoredRes, nil
+}
+
+// UUID generate UUID sequence
+func UUID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }

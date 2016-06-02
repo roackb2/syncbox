@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -101,6 +102,13 @@ func (client *Client) CouldScan() bool {
 
 // Start runs a client main program
 func (client *Client) Start() error {
+	if err := os.RemoveAll(client.TmpDir); err != nil && !strings.HasSuffix(err.Error(), "no such file or directory") {
+		return err
+	}
+	if err := os.Mkdir(client.TmpDir, 0777); err != nil && !strings.HasSuffix(err.Error(), "file exists") {
+		client.LogDebug("error on creating temp dir: %v\n", err)
+		return err
+	}
 	err := client.Dial(client)
 	if err != nil {
 		client.LogDebug("error on dial: %v\n", err)
@@ -140,8 +148,8 @@ func (client *Client) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, 
 		client.LogDebug("error on Unmarshal in ProcessIdentity: %v\n", err)
 		eHandler(err)
 	}
-	// client.LogDebug("client ProcessIdentity called, req: %v\n", iReq)
-	if err := peer.SendResponse(&syncbox.Response{
+	client.LogDebug("sending response in ProcessIdentity, request id: %v\n", req.ID)
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -166,6 +174,11 @@ func (client *Client) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 		eHandler(err)
 	}
 
+	if err := client.cleanTempDir(); err != nil {
+		client.LogDebug("error on cleanTempDir in ProcessDigest: %v\n", err)
+		eHandler(err)
+	}
+
 	// update the client side file tree representation and digest file to newest status,
 	// to prevent ping pong sync
 	client.OldDir = dReq.Dir
@@ -175,7 +188,8 @@ func (client *Client) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 		eHandler(err)
 	}
 
-	if err := peer.SendResponse(&syncbox.Response{
+	client.LogDebug("sending response in ProcessDigest, request id: %v\n", req.ID)
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -201,7 +215,9 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			client.LogDebug("error reading file: %v\n", err)
 			eHandler(err)
 		}
-		if err := peer.SendResponse(&syncbox.Response{
+
+		client.LogDebug("sending response in ProcessSync, request id: %v\n", req.ID)
+		if err := peer.SendResponse(req, &syncbox.Response{
 			Status:  syncbox.StatusOK,
 			Message: syncbox.MessageAccept,
 		}); err != nil {
@@ -236,8 +252,8 @@ func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 	}
 	client.DecreaseFileOp()
 
-	// client.LogDebug("client ProcessFile called, req: %v\n", dReq)
-	if err := peer.SendResponse(&syncbox.Response{
+	client.LogDebug("sending response in ProcessFile, request id: %v\n", req.ID)
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -250,12 +266,27 @@ func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 func (client *Client) AddFile(rootPath string, unrootPath string, file *syncbox.File, peer *syncbox.Peer) error {
 	client.LogVerbose("AddFile, rootPath: %v, unrootPath: %v, file path: %v", rootPath, unrootPath, file.Path)
 	client.IncreaseFileOp()
-	res, err := peer.SendSyncRequest(client.Username, client.Password, client.Device, unrootPath, syncbox.ActionGet, file)
-	if err != nil {
-		client.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
-		return err
+	hasTempFile := true
+	fileOriginPath := client.rebornPath(unrootPath)
+	fileTmpPath := path.Join(client.TmpDir, syncbox.ChecksumToNumString(file.ContentChecksum))
+	if err := os.Rename(fileTmpPath, fileOriginPath); err != nil {
+		if strings.HasSuffix(err.Error(), "no such file or directory") {
+			hasTempFile = false
+		} else {
+			client.LogDebug("error on Rename in AddFile: %v\n", err)
+			return err
+		}
 	}
-	client.LogDebug("response of SendSyncRequest in AddFile:\n%v\n", res)
+	if hasTempFile {
+		client.DecreaseFileOp()
+	} else {
+		res, err := peer.SendSyncRequest(client.Username, client.Password, client.Device, unrootPath, syncbox.ActionGet, file)
+		if err != nil {
+			client.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
+			return err
+		}
+		client.LogDebug("response of SendSyncRequest in AddFile:\n%v\n", res)
+	}
 	return nil
 }
 
@@ -263,9 +294,10 @@ func (client *Client) AddFile(rootPath string, unrootPath string, file *syncbox.
 func (client *Client) DeleteFile(rootPath string, unrootPath string, file *syncbox.File, peer *syncbox.Peer) error {
 	client.LogVerbose("DeleteFile, rootPath: %v, unrootPath: %v, file path: %v", rootPath, unrootPath, file.Path)
 	client.IncreaseFileOp()
-	filePath := client.rebornPath(unrootPath)
-	client.LogVerbose("filePath in DeleteFile: %v\n", filePath)
-	if err := os.Remove(filePath); err != nil {
+	fileOriginPath := client.rebornPath(unrootPath)
+	fileTmpPath := path.Join(client.TmpDir, syncbox.ChecksumToNumString(file.ContentChecksum))
+	client.LogVerbose("fileOriginPath in DeleteFile: %v\n", fileOriginPath)
+	if err := os.Rename(fileOriginPath, fileTmpPath); err != nil && err != os.ErrExist {
 		return err
 	}
 	client.DecreaseFileOp()
@@ -356,4 +388,14 @@ func (client *Client) WriteDigest() error {
 
 func (client *Client) rebornPath(unrootPath string) string {
 	return client.RootDir + unrootPath
+}
+
+func (client *Client) cleanTempDir() error {
+	if err := os.RemoveAll(client.TmpDir); err != nil {
+		return err
+	}
+	if err := os.Mkdir(client.TmpDir, 0777); err != nil && err != os.ErrExist {
+		return err
+	}
+	return nil
 }

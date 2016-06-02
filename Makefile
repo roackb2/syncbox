@@ -20,6 +20,7 @@ sb_db_host = $(shell echo $$SB_DB_HOST)
 sb_db_port = $(shell echo $$SB_DB_PORT)
 sb_db_database = $(shell echo $$SB_DB_DATABASE)
 cur_dir = $(shell pwd)
+tmp_dir = $(shell echo $$TMPDIR)
 
 git-merge-dev:
 	git add -A
@@ -87,7 +88,7 @@ run-client:
 	$(client_program_name)
 
 run-second-client:
-	$(client_program_name) --root_dir=$(cur_dir)/test-target2
+	$(client_program_name) --root_dir=$(cur_dir)/test-target2 --tmp_dir=$(tmp_dir)syncbox2
 
 build-and-run-client: build-client run-client
 

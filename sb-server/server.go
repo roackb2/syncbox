@@ -88,8 +88,8 @@ func (server *Server) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, 
 		server.LogDebug("error on Unmarshal in ProcessIdentity: %v\n", err)
 		eHandler(err)
 	}
-	// server.LogDebug("server ProcessIdentity called, req: %v\n", iReq)
-	if err := peer.SendResponse(&syncbox.Response{
+	server.LogDebug("sending response in ProcessIdentity, request id: %v\n", req.ID)
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -156,7 +156,8 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 	server.LogVerbose("serverDir:\n%v\n", serverDir)
 
 	// send response to user before Compare
-	if err := peer.SendResponse(&syncbox.Response{
+	server.LogDebug("sending response in ProcessDigest, request id: %v\n", req.ID)
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -234,7 +235,8 @@ func (server *Server) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			eHandler(err)
 		}
 
-		if err := peer.SendResponse(&syncbox.Response{
+		server.LogDebug("sending response in ProcessSync, request id: %v\n", req.ID)
+		if err := peer.SendResponse(req, &syncbox.Response{
 			Status:  syncbox.StatusOK,
 			Message: syncbox.MessageAccept,
 		}); err != nil {
@@ -270,7 +272,8 @@ func (server *Server) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 		eHandler(err)
 	}
 
-	if err := peer.SendResponse(&syncbox.Response{
+	server.LogDebug("sending response in ProcessFile, request id: %v\n", req.ID)
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -300,7 +303,7 @@ func (server *Server) AddFile(rootPath string, unrootPath string, file *syncbox.
 			server.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
 			return err
 		}
-		server.LogDebug("response for SendSyncRequest in AddFile: %v\n", res)
+		server.LogDebug("response of SendSyncRequest in AddFile:\n%v\n", res)
 	}
 
 	// no matter whether there are duplicates, it's needed to add a file ref record to database
