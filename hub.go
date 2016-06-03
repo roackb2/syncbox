@@ -282,7 +282,9 @@ func (hub *Hub) SendRequest(handler ConnectionHandler, req *Request) error {
 		if err != nil {
 			hub.LogDebug("error SendRequest,\n request id: %v,\n error: %v,\n retry count: %v\n ", req.ID, err, i)
 			if err == ErrorPeerSocketClosed || strings.HasSuffix(err.Error(), "use of closed network connection") {
-				if dialErr := handler.Dial(handler, hub.Conn.RemoteAddr().(*net.TCPAddr)); dialErr != nil {
+				addr := hub.Conn.RemoteAddr().(*net.TCPAddr)
+				hub.LogDebug("trying to dial to %v\n", addr)
+				if dialErr := handler.Dial(handler, addr); dialErr != nil {
 					hub.LogDebug("error on retry Dial in SendRequest: %v\n", dialErr)
 					time.Sleep(SendMessageRestPeriod)
 				}
@@ -306,8 +308,9 @@ func (hub *Hub) SendResponse(handler ConnectionHandler, req *Request, res *Respo
 		if err != nil {
 			hub.LogDebug("error SendResponse,\n request id: %v,\n error: %v,\n retry count: %v\n ", req.ID, err, i)
 			if err == ErrorPeerSocketClosed || strings.HasSuffix(err.Error(), "use of closed network connection") {
-				hub.LogDebug("connection closed, trying to dial\n")
-				if dialErr := handler.Dial(handler, hub.Conn.RemoteAddr().(*net.TCPAddr)); dialErr != nil {
+				addr := hub.Conn.RemoteAddr().(*net.TCPAddr)
+				hub.LogDebug("trying to dial to %v\n", addr)
+				if dialErr := handler.Dial(handler, addr); dialErr != nil {
 					hub.LogDebug("error on retry Dial in SendResponse: %v\n", dialErr)
 					time.Sleep(SendMessageRestPeriod)
 				}

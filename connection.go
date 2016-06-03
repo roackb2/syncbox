@@ -27,22 +27,26 @@ var (
 // Connector is the base structure for server and client connection
 type Connector struct {
 	*Logger
-	ServerHost string
-	ServerPort string
-	ServerAddr *net.TCPAddr
+	ServerHost       string
+	ServerPort       string
+	ServerDialAddr   *net.TCPAddr
+	ServerListenAddr *net.TCPAddr
 }
 
 // ServerConnector structure for server connection
 type ServerConnector struct {
 	*Connector
-	Clients map[*net.TCPAddr]*Peer
+	ServerLocalAddr *net.TCPAddr
+	Clients         map[*net.TCPAddr]*Peer
 }
 
 // ClientConnector structure for client connection
 type ClientConnector struct {
 	*Connector
-	ClientPort string
-	Peer       *Peer
+	ClientPort       string
+	ServerRemoteAddr *net.TCPAddr
+	ClientLocalAddr  *net.TCPAddr
+	Peer             *Peer
 }
 
 // Peer is a representation of a connection
@@ -77,37 +81,46 @@ type RequestHandler func(*Peer) error
 // ErrorHandler function type for server to deal with errors when handling connections
 type ErrorHandler func(error)
 
+// NewConnector instantiates a connector
+func NewConnector() (*Connector, error) {
+	serverListenAddr, err := net.ResolveTCPAddr("tcp", IPAnywhere+":"+DefaultServerPort)
+	if err != nil {
+		return nil, err
+	}
+	serverDialAddr, err := net.ResolveTCPAddr("tcp", ServerHost+":"+DefaultServerPort)
+	if err != nil {
+		return nil, err
+	}
+	return &Connector{
+		ServerHost:       ServerHost,
+		ServerPort:       DefaultServerPort,
+		ServerDialAddr:   serverDialAddr,
+		ServerListenAddr: serverListenAddr,
+		Logger:           NewDefaultLogger(),
+	}, nil
+}
+
 // NewServerConnector instantiate server connector
 func NewServerConnector() (*ServerConnector, error) {
-	addr, err := net.ResolveTCPAddr("tcp", IPAnywhere+":"+DefaultServerPort)
+	connector, err := NewConnector()
 	if err != nil {
 		return nil, err
 	}
 	return &ServerConnector{
-		Connector: &Connector{
-			ServerHost: IPAnywhere,
-			ServerPort: DefaultServerPort,
-			ServerAddr: addr,
-			Logger:     NewDefaultLogger(),
-		},
-		Clients: make(map[*net.TCPAddr]*Peer),
+		Connector: connector,
+		Clients:   make(map[*net.TCPAddr]*Peer),
 	}, nil
 }
 
 // NewClientConnector instantiate client connector
 func NewClientConnector() (*ClientConnector, error) {
 	fmt.Printf("server host ip: %v\n", ServerHost)
-	addr, err := net.ResolveTCPAddr("tcp", ServerHost+":"+DefaultServerPort)
+	connector, err := NewConnector()
 	if err != nil {
 		return nil, err
 	}
 	return &ClientConnector{
-		Connector: &Connector{
-			ServerHost: ServerHost,
-			ServerPort: DefaultServerPort,
-			ServerAddr: addr,
-			Logger:     NewDefaultLogger(),
-		},
+		Connector:  connector,
 		ClientPort: DefaultClientPort,
 	}, nil
 }
@@ -135,12 +148,13 @@ func (cc *ClientConnector) closeConn(conn *net.TCPConn) {
 }
 
 // Dial dials to client, should be used when try to reconnect to peer
-func (sc *ServerConnector) Dial(handler ConnectionHandler, addr *net.TCPAddr) error {
-	conn, err := net.DialTCP("tcp", sc.ServerAddr, addr)
+func (sc *ServerConnector) Dial(handler ConnectionHandler, clientDialAddr *net.TCPAddr) error {
+	conn, err := net.DialTCP("tcp", nil, clientDialAddr)
 	if err != nil {
 		sc.LogDebug("error on dial: %v\n", err)
 		return err
 	}
+	addr := conn.RemoteAddr().(*net.TCPAddr)
 	hub := NewHub(conn, handler.HandleError)
 	peer := NewPeer(hub, "", "", addr, nil)
 	sc.Clients[addr] = peer
@@ -176,12 +190,12 @@ func (sc *ServerConnector) Dial(handler ConnectionHandler, addr *net.TCPAddr) er
 
 // Listen listen on port
 func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
-	ln, err := net.ListenTCP("tcp", sc.ServerAddr)
+	ln, err := net.ListenTCP("tcp", sc.ServerListenAddr)
 	if err != nil {
 		sc.LogDebug("error on listening: %v\n", err)
 		return err
 	}
-	fmt.Printf("server listening on %v:%v\n", sc.ServerHost, sc.ServerPort)
+	fmt.Printf("server listening on %v\n", sc.ServerListenAddr)
 	for {
 		conn, err := ln.AcceptTCP()
 		if err != nil {
@@ -223,31 +237,18 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 	}
 }
 
-// Dial dials to server, clientAddr should be passed as nil
-func (cc *ClientConnector) Dial(handler ConnectionHandler, clientAddr *net.TCPAddr) error {
-	// if cc.ClientPort != "" {
-	// 	addr, err := net.ResolveTCPAddr("tcp", ":"+cc.ClientPort)
-	// 	if err != nil {
-	// 		cc.LogDebug("error on resolve client address: %v\n", err)
-	// 		return err
-	// 	}
-	// 	clientAddr = addr
-	// }
-
-	conn, err := net.DialTCP("tcp", nil, cc.ServerAddr)
+// Dial dials to server, serverAddr should be passed as nil,
+// it's only for  compatibility of the ConnectionHandler interface
+func (cc *ClientConnector) Dial(handler ConnectionHandler, serverAddr *net.TCPAddr) error {
+	conn, err := net.DialTCP("tcp", nil, cc.ServerDialAddr)
 	if err != nil {
 		cc.LogDebug("error on dial: %v\n", err)
 		return err
 	}
-	dialedAddr := conn.LocalAddr().String()
-	splited := strings.Split(dialedAddr, ":")
-	if cc.ClientPort == "" && len(splited) > 0 {
-		dialedPort := splited[1]
-		cc.ClientPort = dialedPort
-	}
+	cc.ClientLocalAddr = conn.LocalAddr().(*net.TCPAddr)
+	cc.ServerRemoteAddr = conn.RemoteAddr().(*net.TCPAddr)
 	hub := NewHub(conn, handler.HandleError)
-	addr := conn.RemoteAddr().(*net.TCPAddr)
-	cc.Peer = NewPeer(hub, "", "", addr, nil)
+	cc.Peer = NewPeer(hub, "", "", cc.ServerRemoteAddr, nil)
 
 	go func() {
 		err := hub.WaitInbound()
@@ -281,16 +282,12 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler, clientAddr *net.TCPAd
 // Listen listens on the port, in case that connection closed and server try to reconnect to client.
 // This should be called after client Dial, to get the port that used for dialing
 func (cc *ClientConnector) Listen(handler ConnectionHandler) error {
-	clientAddr, err := net.ResolveTCPAddr("tcp", IPAnywhere+":"+cc.ClientPort)
-	if err != nil {
-		cc.LogDebug("error on resolve client address: %v\n", err)
-	}
-	ln, err := net.ListenTCP("tcp", clientAddr)
+	ln, err := net.ListenTCP("tcp", cc.ClientLocalAddr)
 	if err != nil {
 		cc.LogDebug("error on listening: %v\n", err)
 		return err
 	}
-	fmt.Printf("client listening on %v:%v\n", IPAnywhere, cc.ClientPort)
+	fmt.Printf("client listening on %v\n", cc.ClientLocalAddr)
 	for {
 		conn, err := ln.AcceptTCP()
 		if err != nil {
