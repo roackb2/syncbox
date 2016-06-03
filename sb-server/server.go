@@ -93,7 +93,7 @@ func (server *Server) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, 
 		eHandler(err)
 	}
 	server.LogDebug("sending response in ProcessIdentity, request id: %v\n", req.ID)
-	if err := peer.SendResponse(req, &syncbox.Response{
+	if err := peer.SendResponse(server, req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -161,7 +161,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 
 	// send response to user before Compare
 	server.LogDebug("sending response in ProcessDigest, request id: %v\n", req.ID)
-	if err := peer.SendResponse(req, &syncbox.Response{
+	if err := peer.SendResponse(server, req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -178,7 +178,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 		}
 		for addr, clientPeer := range server.Clients {
 			if clientPeer.Username == peer.Username && addr != peer.Address {
-				res, innerErr := clientPeer.SendDigestRequest(syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, dReq.Dir)
+				res, innerErr := clientPeer.SendDigestRequest(server, syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, dReq.Dir)
 				if innerErr != nil {
 					server.LogError("error on SendDigestRequest in ProcessDigest: %v\v", innerErr)
 					eHandler(innerErr)
@@ -188,7 +188,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 		}
 	} else {
 		// otherwise, tell the original peer to update its file tree with server status
-		res, innerErr := peer.SendDigestRequest(syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, serverDir)
+		res, innerErr := peer.SendDigestRequest(server, syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, serverDir)
 		if innerErr != nil {
 			server.LogError("error on SendDigestRequest in ProcessDigest: %v\v", innerErr)
 			eHandler(innerErr)
@@ -240,7 +240,7 @@ func (server *Server) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 		}
 
 		server.LogDebug("sending response in ProcessSync, request id: %v\n", req.ID)
-		if err := peer.SendResponse(req, &syncbox.Response{
+		if err := peer.SendResponse(server, req, &syncbox.Response{
 			Status:  syncbox.StatusOK,
 			Message: syncbox.MessageAccept,
 		}); err != nil {
@@ -248,7 +248,7 @@ func (server *Server) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			eHandler(err)
 		}
 
-		res, err := peer.SendFileRequest(syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, sReq.UnrootPath, sReq.File, fileBytes)
+		res, err := peer.SendFileRequest(server, syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, sReq.UnrootPath, sReq.File, fileBytes)
 		if err != nil {
 			server.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
 			eHandler(err)
@@ -277,7 +277,7 @@ func (server *Server) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 	}
 
 	server.LogDebug("sending response in ProcessFile, request id: %v\n", req.ID)
-	if err := peer.SendResponse(req, &syncbox.Response{
+	if err := peer.SendResponse(server, req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -302,7 +302,7 @@ func (server *Server) AddFile(rootPath string, unrootPath string, file *syncbox.
 
 	// if no duplicate, send a sync request to client to get file and save to s3
 	if !duplicate {
-		res, err := peer.SendSyncRequest(syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, unrootPath, syncbox.ActionGet, file)
+		res, err := peer.SendSyncRequest(server, syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, unrootPath, syncbox.ActionGet, file)
 		if err != nil {
 			server.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
 			return err

@@ -57,6 +57,7 @@ type Peer struct {
 
 // ConnectionHandler is the interface to specify methods that should be implemented as a connection handler
 type ConnectionHandler interface {
+	Dial(handler ConnectionHandler, addr *net.TCPAddr) error
 	HandleRequest(*Peer) error
 	HandleError(error)
 	ProcessIdentity(*Request, *Peer, ErrorHandler)
@@ -70,7 +71,7 @@ type ConnectionHandler interface {
 }
 
 // RequestHandler function type for server to handle requests
-// RequestHandler should be called as goroutine
+// this should be called as goroutine
 type RequestHandler func(*Peer) error
 
 // ErrorHandler function type for server to deal with errors when handling connections
@@ -122,13 +123,55 @@ func NewPeer(hub *Hub, username string, device string, addr *net.TCPAddr, rg *Re
 	}
 }
 
-func (sc *ServerConnector) closeConn(conn *net.TCPConn, addr *net.TCPAddr) {
+func (sc *ServerConnector) closeConn(conn *net.TCPConn) {
+	sc.LogDebug("close connection of %v\n", conn.RemoteAddr())
 	conn.Close()
-	delete(sc.Clients, addr)
+	delete(sc.Clients, conn.RemoteAddr().(*net.TCPAddr))
 }
 
 func (cc *ClientConnector) closeConn(conn *net.TCPConn) {
+	cc.LogDebug("close connection of %v\n", conn.RemoteAddr())
 	conn.Close()
+}
+
+// Dial dials to client, should be used when try to reconnect to peer
+func (sc *ServerConnector) Dial(handler ConnectionHandler, addr *net.TCPAddr) error {
+	conn, err := net.DialTCP("tcp", sc.ServerAddr, addr)
+	if err != nil {
+		sc.LogDebug("error on dial: %v\n", err)
+		return err
+	}
+	hub := NewHub(conn, handler.HandleError)
+	peer := NewPeer(hub, "", "", addr, nil)
+	sc.Clients[addr] = peer
+
+	go func() {
+		err := hub.WaitInbound()
+		if err != nil {
+			sc.LogDebug("error on WaitInbound: %v\n", err)
+			handler.HandleError(err)
+		}
+		sc.closeConn(conn)
+	}()
+
+	go func() {
+		err := hub.WaitOutbound()
+		if err != nil {
+			sc.LogDebug("error on WaitOutbound: %v\n", err)
+			handler.HandleError(err)
+		}
+		sc.closeConn(conn)
+	}()
+
+	go func() {
+		err := handler.HandleRequest(peer)
+		if err != nil {
+			sc.LogDebug("error on handle connection: %v\n", err)
+			handler.HandleError(err)
+		}
+		sc.closeConn(conn)
+	}()
+	return nil
 }
 
 // Listen listen on port
@@ -146,6 +189,7 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 			return err
 		}
 		addr := conn.RemoteAddr().(*net.TCPAddr)
+		sc.LogDebug("accepted connection: %v\n", addr)
 		hub := NewHub(conn, handler.HandleError)
 		peer := NewPeer(hub, "", "", addr, nil)
 		sc.Clients[addr] = peer
@@ -156,7 +200,7 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 				sc.LogDebug("error on WaitInbound: %v\n", err)
 				handler.HandleError(err)
 			}
-			sc.closeConn(conn, addr)
+			sc.closeConn(conn)
 		}()
 
 		go func() {
@@ -165,7 +209,7 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 				sc.LogDebug("error on WaitOutbound: %v\n", err)
 				handler.HandleError(err)
 			}
-			sc.closeConn(conn, addr)
+			sc.closeConn(conn)
 		}()
 
 		go func() {
@@ -174,22 +218,32 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 				sc.LogDebug("error on handle connection: %v\n", err)
 				handler.HandleError(err)
 			}
-			sc.closeConn(conn, addr)
+			sc.closeConn(conn)
 		}()
 	}
 }
 
-// Dial dials to server
-func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
-	clientAddr, err := net.ResolveTCPAddr("tcp", ":"+cc.ClientPort)
-	if err != nil {
-		cc.LogDebug("error on resolve client address: %v\n", err)
-		return err
-	}
-	conn, err := net.DialTCP("tcp", clientAddr, cc.ServerAddr)
+// Dial dials to server, clientAddr should be passed as nil
+func (cc *ClientConnector) Dial(handler ConnectionHandler, clientAddr *net.TCPAddr) error {
+	// if cc.ClientPort != "" {
+	// 	addr, err := net.ResolveTCPAddr("tcp", ":"+cc.ClientPort)
+	// 	if err != nil {
+	// 		cc.LogDebug("error on resolve client address: %v\n", err)
+	// 		return err
+	// 	}
+	// 	clientAddr = addr
+	// }
+
+	conn, err := net.DialTCP("tcp", nil, cc.ServerAddr)
 	if err != nil {
 		cc.LogDebug("error on dial: %v\n", err)
 		return err
+	}
+	dialedAddr := conn.LocalAddr().String()
+	splited := strings.Split(dialedAddr, ":")
+	if cc.ClientPort == "" && len(splited) > 0 {
+		dialedPort := splited[1]
+		cc.ClientPort = dialedPort
 	}
 	hub := NewHub(conn, handler.HandleError)
 	addr := conn.RemoteAddr().(*net.TCPAddr)
@@ -222,6 +276,59 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
 		cc.closeConn(conn)
 	}()
 	return nil
+}
+
+// Listen listens on the port, in case that connection closed and server try to reconnect to client.
+// This should be called after client Dial, to get the port that used for dialing
+func (cc *ClientConnector) Listen(handler ConnectionHandler) error {
+	clientAddr, err := net.ResolveTCPAddr("tcp", IPAnywhere+":"+cc.ClientPort)
+	if err != nil {
+		cc.LogDebug("error on resolve client address: %v\n", err)
+	}
+	ln, err := net.ListenTCP("tcp", clientAddr)
+	if err != nil {
+		cc.LogDebug("error on listening: %v\n", err)
+		return err
+	}
+	fmt.Printf("client listening on %v:%v\n", IPAnywhere, cc.ClientPort)
+	for {
+		conn, err := ln.AcceptTCP()
+		if err != nil {
+			cc.LogDebug("error on accept: %v\n", err)
+			return err
+		}
+		serverAddr := conn.RemoteAddr().(*net.TCPAddr)
+		cc.LogDebug("accepted connection: %v\n", serverAddr)
+		hub := NewHub(conn, handler.HandleError)
+		cc.Peer = NewPeer(hub, "", "", serverAddr, nil)
+
+		go func() {
+			err := hub.WaitInbound()
+			if err != nil {
+				cc.LogDebug("error on WaitInbound: %v\n", err)
+				handler.HandleError(err)
+			}
+			cc.closeConn(conn)
+		}()
+
+		go func() {
+			err := hub.WaitOutbound()
+			if err != nil {
+				cc.LogDebug("error on WaitOutbound: %v\n", err)
+				handler.HandleError(err)
+			}
+			cc.closeConn(conn)
+		}()
+
+		go func() {
+			err := handler.HandleRequest(cc.Peer)
+			if err != nil {
+				cc.LogDebug("error on handle connection: %v\n", err)
+				handler.HandleError(err)
+			}
+			cc.closeConn(conn)
+		}()
+	}
 }
 
 // HandleRequest boilerplates connection handling

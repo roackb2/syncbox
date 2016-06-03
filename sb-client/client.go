@@ -17,7 +17,7 @@ import (
 
 // constants about scan
 const (
-	MaxScanCount = math.MaxInt32
+	MaxScanCount = math.MaxInt64
 	ScanPeriod   = 2 * time.Second
 )
 
@@ -27,8 +27,7 @@ func main() {
 		fmt.Printf("error on new client: %v\n", err)
 		return
 	}
-	err = client.Start()
-	if err != nil {
+	if err = client.Start(); err != nil {
 		client.LogError("error on start client: %v\n", err)
 	}
 }
@@ -109,25 +108,35 @@ func (client *Client) Start() error {
 		client.LogDebug("error on creating temp dir: %v\n", err)
 		return err
 	}
-	err := client.Dial(client)
-	if err != nil {
+	if err := client.Dial(client, nil); err != nil {
 		client.LogDebug("error on dial: %v\n", err)
 		return err
 	}
-	for i := 0; i < MaxScanCount; i++ {
-		time.Sleep(ScanPeriod)
-		if client.CouldScan() {
-			if err := client.Scan(); err != nil {
-				if err == syncbox.ErrorEmptyContent || err == io.EOF {
-					// peer socket is closed
-					return syncbox.ErrorPeerSocketClosed
+	errChan := make(chan error)
+	go func(errChan chan error) {
+		if err := client.Listen(client); err != nil {
+			client.LogDebug("error on listen: %v\n", err)
+			errChan <- err
+		}
+	}(errChan)
+
+	go func(errChan chan error) {
+		for i := 0; i < MaxScanCount; i++ {
+			time.Sleep(ScanPeriod)
+			if client.CouldScan() {
+				if err := client.Scan(); err != nil {
+					if err == syncbox.ErrorEmptyContent || err == io.EOF {
+						// peer socket is closed
+						errChan <- syncbox.ErrorPeerSocketClosed
+					}
+					client.LogError("error on scan: %v\n", err)
+					errChan <- err
 				}
-				client.LogError("error on scan: %v\n", err)
-				return err
 			}
 		}
-	}
-	return nil
+	}(errChan)
+
+	return <-errChan
 }
 
 // HandleRequest implements the ConnectionHandler interface
@@ -153,7 +162,7 @@ func (client *Client) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, 
 		eHandler(err)
 	}
 	client.LogDebug("sending response in ProcessIdentity, request id: %v\n", req.ID)
-	if err := peer.SendResponse(req, &syncbox.Response{
+	if err := peer.SendResponse(client, req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -193,7 +202,7 @@ func (client *Client) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 	}
 
 	client.LogDebug("sending response in ProcessDigest, request id: %v\n", req.ID)
-	if err := peer.SendResponse(req, &syncbox.Response{
+	if err := peer.SendResponse(client, req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -221,7 +230,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 		}
 
 		client.LogDebug("sending response in ProcessSync, request id: %v\n", req.ID)
-		if err := peer.SendResponse(req, &syncbox.Response{
+		if err := peer.SendResponse(client, req, &syncbox.Response{
 			Status:  syncbox.StatusOK,
 			Message: syncbox.MessageAccept,
 		}); err != nil {
@@ -229,7 +238,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			eHandler(err)
 		}
 		// client.LogDebug("before SendFileRequest")
-		res, err := peer.SendFileRequest(client.Username, client.Password, client.Device, sReq.UnrootPath, sReq.File, fileBytes)
+		res, err := peer.SendFileRequest(client, client.Username, client.Password, client.Device, sReq.UnrootPath, sReq.File, fileBytes)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
 			eHandler(err)
@@ -257,7 +266,7 @@ func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 	client.DecreaseFileOp()
 
 	client.LogDebug("sending response in ProcessFile, request id: %v\n", req.ID)
-	if err := peer.SendResponse(req, &syncbox.Response{
+	if err := peer.SendResponse(client, req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -284,7 +293,7 @@ func (client *Client) AddFile(rootPath string, unrootPath string, file *syncbox.
 	if hasTempFile {
 		client.DecreaseFileOp()
 	} else {
-		res, err := peer.SendSyncRequest(client.Username, client.Password, client.Device, unrootPath, syncbox.ActionGet, file)
+		res, err := peer.SendSyncRequest(client, client.Username, client.Password, client.Device, unrootPath, syncbox.ActionGet, file)
 		if err != nil {
 			client.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
 			return err
@@ -364,7 +373,7 @@ func (client *Client) Scan() error {
 	}
 
 	// client.LogInfo("sending digest request to server")
-	res, err := client.ClientConnector.Peer.SendDigestRequest(client.Username, client.Password, client.Device, client.NewDir)
+	res, err := client.ClientConnector.Peer.SendDigestRequest(client, client.Username, client.Password, client.Device, client.NewDir)
 	if err != nil {
 		client.LogError("error on send: %v\n", err)
 		return err
