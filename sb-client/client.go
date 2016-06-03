@@ -137,7 +137,11 @@ func (client *Client) HandleRequest(peer *syncbox.Peer) error {
 
 // HandleError implements the ConnectionHandler interface
 func (client *Client) HandleError(err error) {
-	client.LogError("error: %v\n", err)
+	if err == syncbox.ErrorPeerSocketClosed {
+		client.LogInfo("%v\n", err)
+	} else {
+		client.LogError("error: %v\n", err)
+	}
 }
 
 // ProcessIdentity implements the ConnectionHandler interface

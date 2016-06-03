@@ -53,15 +53,15 @@ func NewHub(conn *net.TCPConn, eHandler ErrorHandler) *Hub {
 		ErrorHandler:           eHandler,
 		Logger:                 NewDefaultLogger(),
 	}
-	hub.Setup()
+	// hub.Setup()
 	return hub
 }
 
 // Setup runs up two goroutines to wait for inbound and outbound data
-func (hub *Hub) Setup() {
-	go hub.waitInbound()
-	go hub.waitOutbound()
-}
+// func (hub *Hub) Setup() {
+// 	go hub.waitInbound()
+// 	go hub.waitOutbound()
+// }
 
 func (hub *Hub) writePackets(bytes []byte) error {
 	packets, err := Serialize(bytes)
@@ -122,7 +122,12 @@ func (hub *Hub) readPackets() ([]byte, error) {
 	return data, nil
 }
 
-func (hub *Hub) waitInbound() {
+// WaitInbound waits for inbound message and dispatch to InboundRequest or InboundResponse channel accordingly,
+// this should be run as goroutine/
+// It returns error if an error is considered as connection level, such as EOF or unknonw message type,
+// and leave for the connectors to deal with error,
+// otherwise it sends the error to InboundRequestError or InboundResponseError channel accordingly.
+func (hub *Hub) WaitInbound() error {
 	for {
 		message, err := hub.readPackets()
 		if len(message) > 0 {
@@ -131,8 +136,8 @@ func (hub *Hub) waitInbound() {
 		if err != nil {
 			if err == io.EOF {
 				hub.LogDebug("peer socket closed\n")
-				hub.Conn.Close()
-				return
+				// hub.Conn.Close()
+				return ErrorPeerSocketClosed
 			}
 			hub.LogVerbose("error in waitInbound: %v\n", err)
 			// hub.ErrorHandler(err)
@@ -140,8 +145,8 @@ func (hub *Hub) waitInbound() {
 		}
 		if len(message) == 0 {
 			hub.LogDebug("peer socket closed\n")
-			hub.Conn.Close()
-			return
+			// hub.Conn.Close()
+			return ErrorPeerSocketClosed
 		}
 		prefix := message[0]
 		if err != nil {
@@ -153,7 +158,8 @@ func (hub *Hub) waitInbound() {
 				hub.LogVerbose("inbound response error: %v\n", err)
 				hub.InboundResponseError <- err
 			default:
-				hub.ErrorHandler(errors.New("unknown message type: " + string(prefix)))
+				// hub.ErrorHandler(errors.New("unknown message type: " + string(prefix)))
+				return errors.New("unknown message type: " + string(prefix))
 			}
 			continue
 		}
@@ -166,13 +172,19 @@ func (hub *Hub) waitInbound() {
 			hub.LogVerbose("inbound response message: %v\n", string(message))
 			hub.InboundResponse <- message
 		default:
-			hub.ErrorHandler(errors.New("unknown message type: " + string(prefix)))
-			continue
+			// hub.ErrorHandler(errors.New("unknown message type: " + string(prefix)))
+			// continue
+			return errors.New("unknown message type: " + string(prefix))
 		}
 	}
 }
 
-func (hub *Hub) waitOutbound() {
+// WaitOutbound waits on the OutboundRequest and OutboundResponse channel and send message to the connection.
+// this Should be run as goroutine.
+// It returns error if an error is considered as connection level, such as EOF or unknonw message type,
+// and leave for the connectors to deal with error,
+// otherwise it sends the error to OutboundRequestError or OutboundResponseError channel accordingly.
+func (hub *Hub) WaitOutbound() error {
 	for {
 		select {
 		case message := <-hub.OutboundRequest:
@@ -203,7 +215,7 @@ func (hub *Hub) waitOutbound() {
 	}
 }
 
-// ReceiveRequest blocks until is a inbound request
+// ReceiveRequest blocks until there is a inbound request
 func (hub *Hub) ReceiveRequest() (*Request, error) {
 	select {
 	case bytes := <-hub.InboundRequest:
@@ -220,7 +232,7 @@ func (hub *Hub) ReceiveRequest() (*Request, error) {
 
 }
 
-// ReceiveResponse blocks until there is a inbound response
+// ReceiveResponse blocks until there is a inbound response,
 func (hub *Hub) ReceiveResponse() (*Response, error) {
 	select {
 	case bytes := <-hub.InboundResponse:
@@ -268,7 +280,8 @@ func (hub *Hub) sendResponse(req *Request, res *Response) error {
 	}
 }
 
-// SendRequest sends a request to the hub
+// SendRequest sends a request to the hub,
+// it retries finite number if there is error sending request
 func (hub *Hub) SendRequest(req *Request) error {
 	var err error
 	for i := 0; i < SendRequestMaxRetry; i++ {
@@ -284,6 +297,7 @@ func (hub *Hub) SendRequest(req *Request) error {
 }
 
 // SendResponse sends a response to the hub
+// it retries finite number if there is error sending response
 func (hub *Hub) SendResponse(req *Request, res *Response) error {
 	var err error
 	for i := 0; i < SendResponseMaxRetry; i++ {

@@ -122,6 +122,15 @@ func NewPeer(hub *Hub, username string, device string, addr *net.TCPAddr, rg *Re
 	}
 }
 
+func (sc *ServerConnector) closeConn(conn *net.TCPConn, addr *net.TCPAddr) {
+	conn.Close()
+	delete(sc.Clients, addr)
+}
+
+func (cc *ClientConnector) closeConn(conn *net.TCPConn) {
+	conn.Close()
+}
+
 // Listen listen on port
 func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 	ln, err := net.ListenTCP("tcp", sc.ServerAddr)
@@ -142,15 +151,30 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 		sc.Clients[addr] = peer
 
 		go func() {
-			defer func() {
-				conn.Close()
-				delete(sc.Clients, addr)
-			}()
+			err := hub.WaitInbound()
+			if err != nil {
+				sc.LogDebug("error on WaitInbound: %v\n", err)
+				handler.HandleError(err)
+			}
+			sc.closeConn(conn, addr)
+		}()
+
+		go func() {
+			err := hub.WaitOutbound()
+			if err != nil {
+				sc.LogDebug("error on WaitOutbound: %v\n", err)
+				handler.HandleError(err)
+			}
+			sc.closeConn(conn, addr)
+		}()
+
+		go func() {
 			err := handler.HandleRequest(peer)
 			if err != nil {
 				sc.LogDebug("error on handle connection: %v\n", err)
 				handler.HandleError(err)
 			}
+			sc.closeConn(conn, addr)
 		}()
 	}
 }
@@ -170,15 +194,32 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler) error {
 	hub := NewHub(conn, handler.HandleError)
 	addr := conn.RemoteAddr().(*net.TCPAddr)
 	cc.Peer = NewPeer(hub, "", "", addr, nil)
+
 	go func() {
-		defer func() {
-			conn.Close()
-		}()
+		err := hub.WaitInbound()
+		if err != nil {
+			cc.LogDebug("error on WaitInbound: %v\n", err)
+			handler.HandleError(err)
+		}
+		cc.closeConn(conn)
+	}()
+
+	go func() {
+		err := hub.WaitOutbound()
+		if err != nil {
+			cc.LogDebug("error on WaitOutbound: %v\n", err)
+			handler.HandleError(err)
+		}
+		cc.closeConn(conn)
+	}()
+
+	go func() {
 		err := handler.HandleRequest(cc.Peer)
 		if err != nil {
 			cc.LogDebug("error on handle connection: %v\n", err)
 			handler.HandleError(err)
 		}
+		cc.closeConn(conn)
 	}()
 	return nil
 }
