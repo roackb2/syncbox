@@ -118,10 +118,12 @@ func NewServerConnector() (*ServerConnector, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ServerConnector{
+	sc := &ServerConnector{
 		Connector: connector,
 		Clients:   make(map[*net.TCPAddr]*Peer),
-	}, nil
+	}
+	sc.CouldCloseConn = sc
+	return sc, nil
 }
 
 // NewClientConnector instantiate client connector
@@ -131,10 +133,12 @@ func NewClientConnector() (*ClientConnector, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ClientConnector{
+	cc := &ClientConnector{
 		Connector:  connector,
 		ClientPort: DefaultClientPort,
-	}, nil
+	}
+	cc.CouldCloseConn = cc
+	return cc, nil
 }
 
 // NewPeer instantiates a Peer
@@ -150,27 +154,32 @@ func NewPeer(hub *Hub, username string, device string, addr *net.TCPAddr, rg *Re
 
 // CloseConn implements the CouldCloseConn interface
 func (sc *ServerConnector) CloseConn(conn *net.TCPConn) {
-	sc.LogDebug("close connection of %v\n", conn.RemoteAddr())
-	conn.Close()
-	delete(sc.Clients, conn.RemoteAddr().(*net.TCPAddr))
+	if conn != nil {
+		sc.LogDebug("close connection of %v\n", conn.RemoteAddr())
+		conn.Close()
+		delete(sc.Clients, conn.RemoteAddr().(*net.TCPAddr))
+	}
 }
 
 // CloseConn implements the CouldCloseConn interface
 func (cc *ClientConnector) CloseConn(conn *net.TCPConn) {
-	cc.LogDebug("close connection of %v\n", conn.RemoteAddr())
-	conn.Close()
+	if conn != nil {
+		cc.LogDebug("close connection of %v\n", conn.RemoteAddr())
+		conn.Close()
+	}
 }
 
 // SetupConnection setups methods that handles a request, including receiving message,
 // waiting for outbound message, dispatch response to corresponding request and handle request
-func (connector *Connector) SetupConnection(handler ConnectionHandler, peer *Peer) {
+func (connector *Connector) SetupConnection(handler ConnectionHandler, peer *Peer, conn *net.TCPConn) {
 	go func() {
 		err := peer.Hub.WaitInbound()
 		if err != nil {
 			connector.LogDebug("error on WaitInbound: %v\n", err)
 			handler.HandleError(err)
 		}
-		connector.CloseConn(peer.Hub.Conn)
+		fmt.Printf("connector: %v\n", connector)
+		connector.CloseConn(conn)
 	}()
 
 	go func() {
@@ -179,7 +188,7 @@ func (connector *Connector) SetupConnection(handler ConnectionHandler, peer *Pee
 			connector.LogDebug("error on WaitOutbound: %v\n", err)
 			handler.HandleError(err)
 		}
-		connector.CloseConn(peer.Hub.Conn)
+		connector.CloseConn(conn)
 	}()
 
 	go func() {
@@ -188,7 +197,7 @@ func (connector *Connector) SetupConnection(handler ConnectionHandler, peer *Pee
 			connector.LogDebug("error on DispatchResponse: %v\n", err)
 			handler.HandleError(err)
 		}
-		connector.CloseConn(peer.Hub.Conn)
+		connector.CloseConn(conn)
 	}()
 
 	go func() {
@@ -197,7 +206,7 @@ func (connector *Connector) SetupConnection(handler ConnectionHandler, peer *Pee
 			connector.LogDebug("error on handle connection: %v\n", err)
 			handler.HandleError(err)
 		}
-		connector.CloseConn(peer.Hub.Conn)
+		connector.CloseConn(conn)
 	}()
 }
 
@@ -212,7 +221,7 @@ func (sc *ServerConnector) Dial(handler ConnectionHandler, clientDialAddr *net.T
 	hub := NewHub(conn, handler.HandleError)
 	peer := NewPeer(hub, "", "", addr, nil)
 	sc.Clients[addr] = peer
-	sc.SetupConnection(handler, peer)
+	sc.SetupConnection(handler, peer, conn)
 	return nil
 }
 
@@ -235,7 +244,7 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 		hub := NewHub(conn, handler.HandleError)
 		peer := NewPeer(hub, "", "", addr, nil)
 		sc.Clients[addr] = peer
-		sc.SetupConnection(handler, peer)
+		sc.SetupConnection(handler, peer, conn)
 	}
 }
 
@@ -251,7 +260,7 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler, serverAddr *net.TCPAd
 	cc.ServerRemoteAddr = conn.RemoteAddr().(*net.TCPAddr)
 	hub := NewHub(conn, handler.HandleError)
 	cc.Peer = NewPeer(hub, "", "", cc.ServerRemoteAddr, nil)
-	cc.SetupConnection(handler, cc.Peer)
+	cc.SetupConnection(handler, cc.Peer, conn)
 	return nil
 }
 
@@ -274,7 +283,7 @@ func (cc *ClientConnector) Listen(handler ConnectionHandler) error {
 		cc.LogDebug("accepted connection: %v\n", serverAddr)
 		hub := NewHub(conn, handler.HandleError)
 		cc.Peer = NewPeer(hub, "", "", serverAddr, nil)
-		cc.SetupConnection(handler, cc.Peer)
+		cc.SetupConnection(handler, cc.Peer, conn)
 	}
 }
 
