@@ -7,7 +7,7 @@ aws_default_region = us-east-1
 simple_base_image_name=go-base
 base_image_name = $(docker_registry)/$(simple_base_image_name)
 server_image_name = $(docker_registry)/$(server_program_name)
-version = v8
+server_image_with_version = $(server_image_name):$(git_branch_name)-$(git_sha)
 server_container_port = 8000
 ecr_get_login = $(shell aws ecr get-login --region $(aws_default_region))
 docker_registry = $(shell echo $$SB_DOCKER_REGISTRY)
@@ -20,6 +20,11 @@ sb_db_host = $(shell echo $$SB_DB_HOST)
 sb_db_port = $(shell echo $$SB_DB_PORT)
 sb_db_database = $(shell echo $$SB_DB_DATABASE)
 cur_dir = $(shell pwd)
+git_branch_name = $(shell echo `branch_name=$$(git symbolic-ref -q HEAD) && \
+	branch_name=$${branch_name\#\#refs/heads/} && \
+	branch_name=$${branch_name:-unamed_branch} && \
+	echo $$branch_name`)
+git_sha = $(shell echo `git rev-parse --short HEAD`)
 
 git-merge-dev:
 	git add -A
@@ -41,11 +46,11 @@ build-base: $(base_dockerfile)
 
 build-server: $(server_dockerfile)
 	docker build -f $(server_dockerfile) -t $(server_image_name):latest .
-	docker tag $(server_image_name):latest $(server_image_name):$(version)
+	docker tag $(server_image_name):latest $(server_image_with_version)
 
 push-server:
 	docker push $(server_image_name):latest
-	docker push $(server_image_name):$(version)
+	docker push $(server_image_with_version)
 
 run-server-local:
 	docker run -it --rm \
