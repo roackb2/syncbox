@@ -139,7 +139,7 @@ func (client *Client) HandleError(err error) {
 	if err == syncbox.ErrorPeerSocketClosed {
 		client.LogInfo("%v\n", err)
 	} else {
-		client.LogError("error: %v\n", err)
+		client.LogDebug("error: %v\n", err)
 	}
 }
 
@@ -349,7 +349,7 @@ func (client *Client) Scan() error {
 
 			client.NewDir, _, err = syncbox.Build(client.RootDir)
 			if err != nil {
-				client.LogError("error on scanning: %v\n", err)
+				client.LogError("error on Build: %v\n", err)
 				return err
 			}
 			// client.LogDebug("new dir:\n%v\n", client.NewDir)
@@ -369,7 +369,7 @@ func (client *Client) Scan() error {
 			if err := syncbox.SendWithRetry(client, func() error {
 				res, err := client.Peer.SendDigestRequest(client.Username, client.Password, client.Device, client.NewDir)
 				if err != nil {
-					client.LogError("error on SendDigestRequest: %v\n", err)
+					client.LogDebug("error on SendDigestRequest: %v\n", err)
 					return err
 				}
 				client.LogInfo("response of SendDigestRequest:\n%v\n", res)

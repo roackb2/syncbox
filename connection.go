@@ -19,7 +19,7 @@ const (
 
 	SendMessageRestPeriod  = 2 * time.Second
 	SendMessageMaxRetry    = 10
-	OperationTimeoutPeriod = 10 * time.Second
+	OperationTimeoutPeriod = 1 * time.Minute
 )
 
 // variables
@@ -178,7 +178,6 @@ func (connector *Connector) SetupConnection(handler ConnectionHandler, peer *Pee
 			connector.LogDebug("error on WaitInbound: %v\n", err)
 			handler.HandleError(err)
 		}
-		fmt.Printf("connector: %v\n", connector)
 		connector.CloseConn(conn)
 	}()
 

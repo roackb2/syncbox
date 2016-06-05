@@ -74,7 +74,7 @@ func (server *Server) HandleError(err error) {
 	if err == syncbox.ErrorPeerSocketClosed {
 		server.LogInfo("%v\n", err)
 	} else {
-		server.LogError("error: %v\n", err)
+		server.LogDebug("error: %v\n", err)
 	}
 }
 
@@ -182,7 +182,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 			if clientPeer.Username == peer.Username && addr != peer.Address {
 				res, innerErr := clientPeer.SendDigestRequest(syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, dReq.Dir)
 				if innerErr != nil {
-					server.LogError("error on SendDigestRequest in ProcessDigest: %v\v", innerErr)
+					server.LogDebug("error on SendDigestRequest in ProcessDigest: %v\v", innerErr)
 					eHandler(innerErr)
 				}
 				server.LogInfo("SendDigestRequest result: %v\n", res)
@@ -192,7 +192,7 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 		// otherwise, tell the original peer to update its file tree with server status
 		res, innerErr := peer.SendDigestRequest(syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, serverDir)
 		if innerErr != nil {
-			server.LogError("error on SendDigestRequest in ProcessDigest: %v\v", innerErr)
+			server.LogDebug("error on SendDigestRequest in ProcessDigest: %v\v", innerErr)
 			eHandler(innerErr)
 		}
 		server.LogInfo("SendDigestRequest result: %v\n", res)
@@ -201,23 +201,23 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 	server.LogVerbose("before creating digest file object, dirBytes:\n%v\n", string(dirBytes))
 	// put the digest file to S3
 	if err := server.Storage.CreateObject(req.Username, syncbox.DigestFileName, string(dirBytes)); err != nil {
-		server.LogError("error on CreateObject in ProcessDigest: %v\n", err)
+		server.LogDebug("error on CreateObject in ProcessDigest: %v\n", err)
 		eHandler(err)
 	}
 
 	// clean up objects in S3 if no refs on the files
 	noRefFiles, err := peer.RefGraph.GetNoRefFiles()
 	if err != nil {
-		server.LogError("error on GetNoRefFiles in ProcessDigest: %v\n", err)
+		server.LogDebug("error on GetNoRefFiles in ProcessDigest: %v\n", err)
 		eHandler(err)
 	}
 	for _, fileRec := range noRefFiles {
 		if err := server.DeleteObject(peer.Username, fileRec.Checksum); err != nil {
-			server.LogError("error on DeleteObject in ProcessDigest: %v\n", err)
+			server.LogDebug("error on DeleteObject in ProcessDigest: %v\n", err)
 			eHandler(err)
 		}
 		if err := peer.RefGraph.DeleteFileRecord(fileRec); err != nil {
-			server.LogError("error on DeleteFileRecord in ProcessDigest: %v\n", err)
+			server.LogDebug("error on DeleteFileRecord in ProcessDigest: %v\n", err)
 			eHandler(err)
 		}
 	}
