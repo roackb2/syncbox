@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"math"
 	"net"
@@ -121,18 +120,9 @@ func (client *Client) Start() error {
 	}(errChan)
 
 	go func(errChan chan error) {
-		for i := 0; i < MaxScanCount; i++ {
-			time.Sleep(ScanPeriod)
-			if client.CouldScan() {
-				if err := client.Scan(); err != nil {
-					if err == syncbox.ErrorEmptyContent || err == io.EOF {
-						// peer socket is closed
-						errChan <- syncbox.ErrorPeerSocketClosed
-					}
-					client.LogError("error on scan: %v\n", err)
-					errChan <- err
-				}
-			}
+		if err := client.Scan(); err != nil {
+			client.LogError("error on scan: %v\n", err)
+			errChan <- err
 		}
 	}(errChan)
 
@@ -162,7 +152,7 @@ func (client *Client) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, 
 		eHandler(err)
 	}
 	client.LogDebug("sending response in ProcessIdentity, request id: %v\n", req.ID)
-	if err := peer.SendResponse(client, req, &syncbox.Response{
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -202,7 +192,7 @@ func (client *Client) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 	}
 
 	client.LogDebug("sending response in ProcessDigest, request id: %v\n", req.ID)
-	if err := peer.SendResponse(client, req, &syncbox.Response{
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -230,7 +220,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 		}
 
 		client.LogDebug("sending response in ProcessSync, request id: %v\n", req.ID)
-		if err := peer.SendResponse(client, req, &syncbox.Response{
+		if err := peer.SendResponse(req, &syncbox.Response{
 			Status:  syncbox.StatusOK,
 			Message: syncbox.MessageAccept,
 		}); err != nil {
@@ -238,7 +228,7 @@ func (client *Client) ProcessSync(req *syncbox.Request, peer *syncbox.Peer, eHan
 			eHandler(err)
 		}
 		// client.LogDebug("before SendFileRequest")
-		res, err := peer.SendFileRequest(client, client.Username, client.Password, client.Device, sReq.UnrootPath, sReq.File, fileBytes)
+		res, err := peer.SendFileRequest(client.Username, client.Password, client.Device, sReq.UnrootPath, sReq.File, fileBytes)
 		if err != nil {
 			client.LogDebug("error on SendFileRequest in ProcessSync: %v\n", err)
 			eHandler(err)
@@ -266,7 +256,7 @@ func (client *Client) ProcessFile(req *syncbox.Request, peer *syncbox.Peer, eHan
 	client.DecreaseFileOp()
 
 	client.LogDebug("sending response in ProcessFile, request id: %v\n", req.ID)
-	if err := peer.SendResponse(client, req, &syncbox.Response{
+	if err := peer.SendResponse(req, &syncbox.Response{
 		Status:  syncbox.StatusOK,
 		Message: syncbox.MessageAccept,
 	}); err != nil {
@@ -293,7 +283,7 @@ func (client *Client) AddFile(rootPath string, unrootPath string, file *syncbox.
 	if hasTempFile {
 		client.DecreaseFileOp()
 	} else {
-		res, err := peer.SendSyncRequest(client, client.Username, client.Password, client.Device, unrootPath, syncbox.ActionGet, file)
+		res, err := peer.SendSyncRequest(client.Username, client.Password, client.Device, unrootPath, syncbox.ActionGet, file)
 		if err != nil {
 			client.LogDebug("error on SendSyncRequest in AddFile: %v\n", err)
 			return err
@@ -335,51 +325,61 @@ func (client *Client) DeleteDir(rootPath string, unrootPath string, dir *syncbox
 
 // Scan through the target, write digest file on disk and send to server
 func (client *Client) Scan() error {
-	hasOldDigest := true
+	for i := 0; i < MaxScanCount; i++ {
+		time.Sleep(ScanPeriod)
+		if client.CouldScan() {
+			hasOldDigest := true
 
-	oldDirBytes, err := ioutil.ReadFile(client.RootDir + "/" + syncbox.DigestFileName)
-	if err != nil {
-		if strings.HasSuffix(err.Error(), "no such file or directory") {
-			hasOldDigest = false
-		} else {
-			client.LogError("error open digest file: %v\n", err)
-			return err
+			oldDirBytes, err := ioutil.ReadFile(client.RootDir + "/" + syncbox.DigestFileName)
+			if err != nil {
+				if strings.HasSuffix(err.Error(), "no such file or directory") {
+					hasOldDigest = false
+				} else {
+					client.LogError("error open digest file: %v\n", err)
+					return err
+				}
+			}
+
+			if hasOldDigest {
+				if err = json.Unmarshal(oldDirBytes, client.OldDir); err != nil {
+					client.LogError("error on Unmarshal old dir: %v\n", err)
+					return err
+				}
+			}
+
+			client.NewDir, _, err = syncbox.Build(client.RootDir)
+			if err != nil {
+				client.LogError("error on scanning: %v\n", err)
+				return err
+			}
+			// client.LogDebug("new dir:\n%v\n", client.NewDir)
+			client.LogInfo("scanning files\nold dir checksum: %v\nnew dir checksum: %v\n", client.OldDir.ContentChecksum, client.NewDir.ContentChecksum)
+
+			if hasOldDigest && client.OldDir.ContentChecksum == client.NewDir.ContentChecksum {
+				// nothing else need to do
+				continue
+			}
+
+			if err := client.WriteDigest(); err != nil {
+				client.LogError("error on writing digest file: %v\n", err)
+				return err
+			}
+
+			// client.LogInfo("sending digest request to server")
+			if err := syncbox.SendWithRetry(client, func() error {
+				res, err := client.Peer.SendDigestRequest(client.Username, client.Password, client.Device, client.NewDir)
+				if err != nil {
+					client.LogError("error on SendDigestRequest: %v\n", err)
+					return err
+				}
+				client.LogInfo("response of SendDigestRequest:\n%v\n", res)
+				return nil
+			}, nil); err != nil {
+				client.LogDebug("error on SendWithRetry: %v\n", err)
+				continue
+			}
 		}
 	}
-
-	if hasOldDigest {
-		if err = json.Unmarshal(oldDirBytes, client.OldDir); err != nil {
-			client.LogError("error on Unmarshal old dir: %v\n", err)
-			return err
-		}
-	}
-
-	client.NewDir, _, err = syncbox.Build(client.RootDir)
-	if err != nil {
-		client.LogError("error on scanning: %v\n", err)
-		return err
-	}
-	// client.LogDebug("new dir:\n%v\n", client.NewDir)
-	client.LogInfo("scanning files\nold dir checksum: %v\nnew dir checksum: %v\n", client.OldDir.ContentChecksum, client.NewDir.ContentChecksum)
-
-	if hasOldDigest && client.OldDir.ContentChecksum == client.NewDir.ContentChecksum {
-		// nothing else need to do
-		return nil
-	}
-
-	if err := client.WriteDigest(); err != nil {
-		client.LogError("error on writing digest file: %v\n", err)
-		return err
-	}
-
-	// client.LogInfo("sending digest request to server")
-	res, err := client.ClientConnector.Peer.SendDigestRequest(client, client.Username, client.Password, client.Device, client.NewDir)
-	if err != nil {
-		client.LogError("error on send: %v\n", err)
-		return err
-	}
-
-	client.LogInfo("response of SendDigestRequest:\n%v\n", res)
 	return nil
 }
 

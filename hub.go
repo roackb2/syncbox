@@ -7,14 +7,7 @@ import (
 	"io"
 	"math"
 	"net"
-	"strings"
 	"time"
-)
-
-// constants about connection retry
-const (
-	SendMessageRestPeriod = 2 * time.Second
-	SendMessageMaxRetry   = 10
 )
 
 // Hub is the network reading/writing hub for request/reponse,
@@ -32,6 +25,7 @@ type Hub struct {
 	OutboundRequestError   chan error
 	OutboundResponseFinish chan bool
 	OutboundResponseError  chan error
+	RequestQueue           map[string]chan *Response
 	ErrorHandler           ErrorHandler
 }
 
@@ -49,6 +43,7 @@ func NewHub(conn *net.TCPConn, eHandler ErrorHandler) *Hub {
 		OutboundRequestError:   make(chan error),
 		OutboundResponseFinish: make(chan bool),
 		OutboundResponseError:  make(chan error),
+		RequestQueue:           make(map[string]chan *Response),
 		ErrorHandler:           eHandler,
 		Logger:                 NewDefaultLogger(),
 	}
@@ -128,16 +123,12 @@ func (hub *Hub) WaitInbound() error {
 		if err != nil {
 			if err == io.EOF {
 				hub.LogDebug("peer socket closed\n")
-				// hub.Conn.Close()
 				return ErrorPeerSocketClosed
 			}
 			hub.LogVerbose("error in waitInbound: %v\n", err)
-			// hub.ErrorHandler(err)
-			// continue
 		}
 		if len(message) == 0 {
 			hub.LogDebug("peer socket closed\n")
-			// hub.Conn.Close()
 			return ErrorPeerSocketClosed
 		}
 		prefix := message[0]
@@ -150,7 +141,6 @@ func (hub *Hub) WaitInbound() error {
 				hub.LogVerbose("inbound response error: %v\n", err)
 				hub.InboundResponseError <- err
 			default:
-				// hub.ErrorHandler(errors.New("unknown message type: " + string(prefix)))
 				return errors.New("unknown message type: " + string(prefix))
 			}
 			continue
@@ -164,8 +154,6 @@ func (hub *Hub) WaitInbound() error {
 			hub.LogVerbose("inbound response message: %v\n", string(message))
 			hub.InboundResponse <- message
 		default:
-			// hub.ErrorHandler(errors.New("unknown message type: " + string(prefix)))
-			// continue
 			return errors.New("unknown message type: " + string(prefix))
 		}
 	}
@@ -187,7 +175,6 @@ func (hub *Hub) WaitOutbound() error {
 			if err != nil {
 				hub.LogDebug("error on writePackets in waitOutbound: %v\n", err)
 				hub.OutboundRequestError <- err
-				// hub.ErrorHandler(err)
 			} else {
 				hub.OutboundRequestFinish <- true
 			}
@@ -199,11 +186,37 @@ func (hub *Hub) WaitOutbound() error {
 			if err != nil {
 				hub.LogDebug("error on writePackets in waitOutbound: %v\n", err)
 				hub.OutboundResponseError <- err
-				// hub.ErrorHandler(err)
 			} else {
 				hub.OutboundResponseFinish <- true
 			}
 		}
+	}
+}
+
+// DispatchResponse waits to receive response and dispatch to waiting request.
+// This should be called as goroutine.
+// It should returns error only when the error should cause connnection to be closed,
+// otherwise should just continue for next loop to process incoming response.
+func (hub *Hub) DispatchResponse() error {
+	for {
+		res, err := hub.ReceiveResponse()
+		if err != nil {
+			if err == ErrorPeerSocketClosed {
+				// peer socket is closed
+				return nil
+			}
+			hub.LogError("error on receiving response: %v\n", err)
+			continue
+		}
+		id := res.RequestID
+		resChan, exists := hub.RequestQueue[id]
+		if exists {
+			resChan <- res
+			delete(hub.RequestQueue, id)
+		} else {
+			hub.LogDebug("request not found in DispatchResponse, request id: %v\n", id)
+		}
+
 	}
 }
 
@@ -241,7 +254,8 @@ func (hub *Hub) ReceiveResponse() (*Response, error) {
 
 }
 
-func (hub *Hub) sendRequest(req *Request) error {
+// SendRequest sends a request to the hub,
+func (hub *Hub) SendRequest(req *Request) error {
 	bytes, err := json.Marshal(req)
 	if err != nil {
 		hub.LogDebug("error on json Marshal in SendRequest: %v\n", err)
@@ -256,7 +270,8 @@ func (hub *Hub) sendRequest(req *Request) error {
 	}
 }
 
-func (hub *Hub) sendResponse(req *Request, res *Response) error {
+// SendResponse sends a response to the hub
+func (hub *Hub) SendResponse(req *Request, res *Response) error {
 	res.RequestID = req.ID
 	bytes, err := json.Marshal(res)
 	if err != nil {
@@ -272,75 +287,26 @@ func (hub *Hub) sendResponse(req *Request, res *Response) error {
 	}
 }
 
-// SendRequest sends a request to the hub,
-// it retries finite number if there is error sending request
-// and try to reconnect if connection is broken
-func (hub *Hub) SendRequest(handler ConnectionHandler, req *Request) error {
-	var err error
-	for i := 0; i < SendMessageMaxRetry; i++ {
-		err = hub.sendRequest(req)
-		if err != nil {
-			hub.LogDebug("error SendRequest,\n request id: %v,\n error: %v,\n retry count: %v\n ", req.ID, err, i)
-			if err == ErrorPeerSocketClosed || strings.HasSuffix(err.Error(), "use of closed network connection") {
-				addr := hub.Conn.RemoteAddr().(*net.TCPAddr)
-				hub.LogDebug("trying to dial to %v\n", addr)
-				if dialErr := handler.Dial(handler, addr); dialErr != nil {
-					hub.LogDebug("error on retry Dial in SendRequest: %v\n", dialErr)
-					time.Sleep(SendMessageRestPeriod)
-				}
-			} else {
-				time.Sleep(SendMessageRestPeriod)
-			}
-		} else {
-			break
-		}
-	}
-	return err
-}
-
-// SendResponse sends a response to the hub
-// it retries finite number if there is error sending response,
-// and try to reconnect if connection is broken
-func (hub *Hub) SendResponse(handler ConnectionHandler, req *Request, res *Response) error {
-	var err error
-	for i := 0; i < SendMessageMaxRetry; i++ {
-		err = hub.sendResponse(req, res)
-		if err != nil {
-			hub.LogDebug("error SendResponse,\n request id: %v,\n error: %v,\n retry count: %v\n ", req.ID, err, i)
-			if err == ErrorPeerSocketClosed || strings.HasSuffix(err.Error(), "use of closed network connection") {
-				addr := hub.Conn.RemoteAddr().(*net.TCPAddr)
-				hub.LogDebug("trying to dial to %v\n", addr)
-				if dialErr := handler.Dial(handler, addr); dialErr != nil {
-					hub.LogDebug("error on retry Dial in SendResponse: %v\n", dialErr)
-					time.Sleep(SendMessageRestPeriod)
-				}
-			} else {
-				time.Sleep(SendMessageRestPeriod)
-			}
-		} else {
-			break
-		}
-	}
-	return err
-}
-
 // SendRequestForResponse sends a request and waits for response,
-func (hub *Hub) SendRequestForResponse(handler ConnectionHandler, req *Request) (*Response, error) {
-	err := hub.SendRequest(handler, req)
+// it returns ErrorTimeout if waits too long for the response
+func (hub *Hub) SendRequestForResponse(req *Request) (*Response, error) {
+	err := hub.SendRequest(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequest in SendRequestForResponse: %v\n", err)
 		return nil, err
 	}
-	res, err := hub.ReceiveResponse()
-	if err != nil {
-		hub.LogDebug("error on ReceiveResponse in SendRequestForResponse: %v\n", err)
-		return nil, err
+	resChan := make(chan *Response)
+	hub.RequestQueue[req.ID] = resChan
+	select {
+	case res := <-resChan:
+		return res, nil
+	case <-time.After(OperationTimeoutPeriod):
+		return nil, ErrorTimeout
 	}
-	return res, nil
 }
 
 // SendIdentityRequest sends a request with data type of user identity
-func (hub *Hub) SendIdentityRequest(handler ConnectionHandler, username string, password string, device string) (*Response, error) {
+func (hub *Hub) SendIdentityRequest(username string, password string, device string) (*Response, error) {
 	eReq := IdentityRequest{
 		Username: username,
 	}
@@ -352,7 +318,7 @@ func (hub *Hub) SendIdentityRequest(handler ConnectionHandler, username string, 
 	req := NewRequest(username, password, device, TypeIdentity, eReqJSON)
 	hub.LogDebug("SendIdentityRequest called,\n request id: %v,\n username: %v, password: %v, device: %v\n", req.ID, username, password, device)
 
-	res, err := hub.SendRequestForResponse(handler, req)
+	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendIdentityRequest: %v\n", err)
 		return nil, err
@@ -361,7 +327,7 @@ func (hub *Hub) SendIdentityRequest(handler ConnectionHandler, username string, 
 }
 
 // SendDigestRequest sends a request with data type file tree digest
-func (hub *Hub) SendDigestRequest(handler ConnectionHandler, username string, password string, device string, dir *Dir) (*Response, error) {
+func (hub *Hub) SendDigestRequest(username string, password string, device string, dir *Dir) (*Response, error) {
 	dReq := DigestRequest{
 		Dir: dir,
 	}
@@ -373,7 +339,7 @@ func (hub *Hub) SendDigestRequest(handler ConnectionHandler, username string, pa
 	req := NewRequest(username, password, device, TypeDigest, dReqJSON)
 	hub.LogDebug("SendDigestRequest called,\n request id: %v,\n username: %v, password: %v, device: %v,\n dir checksum: %v\n", req.ID, username, password, device, dir.ContentChecksum)
 
-	res, err := hub.SendRequestForResponse(handler, req)
+	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendDigestRequest: %v\n", err)
 		return nil, err
@@ -382,7 +348,7 @@ func (hub *Hub) SendDigestRequest(handler ConnectionHandler, username string, pa
 }
 
 // SendSyncRequest sends a request of data type file operation request
-func (hub *Hub) SendSyncRequest(handler ConnectionHandler, username string, password string, device string, unrootPath string, action string, file *File) (*Response, error) {
+func (hub *Hub) SendSyncRequest(username string, password string, device string, unrootPath string, action string, file *File) (*Response, error) {
 	sReq := SyncRequest{
 		Action:     action,
 		File:       file,
@@ -395,7 +361,7 @@ func (hub *Hub) SendSyncRequest(handler ConnectionHandler, username string, pass
 	}
 	req := NewRequest(username, password, device, TypeSyncRequest, sReqJSON)
 	hub.LogDebug("SendSyncRequest called,\n request id: %v,\n username: %v, password: %v, device: %v,\n unrootPath: %v,\n action: %v,\n file checksum: %v\n", req.ID, username, password, device, unrootPath, action, file.ContentChecksum)
-	res, err := hub.SendRequestForResponse(handler, req)
+	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendSyncRequest: %v\n", err)
 		return nil, err
@@ -404,7 +370,7 @@ func (hub *Hub) SendSyncRequest(handler ConnectionHandler, username string, pass
 }
 
 // SendFileRequest sends a request of data type of file content
-func (hub *Hub) SendFileRequest(handler ConnectionHandler, username string, password string, device string, unrootPath string, file *File, content []byte) (*Response, error) {
+func (hub *Hub) SendFileRequest(username string, password string, device string, unrootPath string, file *File, content []byte) (*Response, error) {
 	fReq := FileRequest{
 		File:       file,
 		UnrootPath: unrootPath,
@@ -417,7 +383,7 @@ func (hub *Hub) SendFileRequest(handler ConnectionHandler, username string, pass
 	}
 	req := NewRequest(username, password, device, TypeFile, fReqJSON)
 	hub.LogDebug("SendFileRequest called,\n request id: %v,\n username: %v, password: %v, device: %v,\n unrootPath: %v,\n file checksum: %v,\n content length: %v\n", req.ID, username, password, device, unrootPath, file.ContentChecksum, len(content))
-	res, err := hub.SendRequestForResponse(handler, req)
+	res, err := hub.SendRequestForResponse(req)
 	if err != nil {
 		hub.LogDebug("error on SendRequestForResponse in SendFileRequest: %v\n", err)
 		return nil, err

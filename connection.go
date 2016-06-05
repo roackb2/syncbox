@@ -2,11 +2,10 @@ package syncbox
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"os"
-	"os/exec"
 	"strings"
+	"time"
 )
 
 // constants
@@ -17,6 +16,10 @@ const (
 
 	DefaultServerPort = "8000"
 	DefaultClientPort = ""
+
+	SendMessageRestPeriod  = 2 * time.Second
+	SendMessageMaxRetry    = 10
+	OperationTimeoutPeriod = 10 * time.Second
 )
 
 // variables
@@ -24,8 +27,24 @@ var (
 	ServerHost = os.Getenv("SB_SERVER_HOST")
 )
 
+// RequestHandler function type for server to handle requests
+// this should be called as goroutine
+type RequestHandler func(*Peer) error
+
+// ErrorHandler function type for server to deal with errors when handling connections
+type ErrorHandler func(error)
+
+// Callback is arbitrary function that returns error if there's one
+type Callback func() error
+
+// CouldCloseConn represents an interface that supports closing a connection
+type CouldCloseConn interface {
+	CloseConn(*net.TCPConn)
+}
+
 // Connector is the base structure for server and client connection
 type Connector struct {
+	CouldCloseConn
 	*Logger
 	ServerHost       string
 	ServerPort       string
@@ -73,13 +92,6 @@ type ConnectionHandler interface {
 	LogError(string, ...interface{})
 	LogVerbose(string, ...interface{})
 }
-
-// RequestHandler function type for server to handle requests
-// this should be called as goroutine
-type RequestHandler func(*Peer) error
-
-// ErrorHandler function type for server to deal with errors when handling connections
-type ErrorHandler func(error)
 
 // NewConnector instantiates a connector
 func NewConnector() (*Connector, error) {
@@ -136,15 +148,57 @@ func NewPeer(hub *Hub, username string, device string, addr *net.TCPAddr, rg *Re
 	}
 }
 
-func (sc *ServerConnector) closeConn(conn *net.TCPConn) {
+// CloseConn implements the CouldCloseConn interface
+func (sc *ServerConnector) CloseConn(conn *net.TCPConn) {
 	sc.LogDebug("close connection of %v\n", conn.RemoteAddr())
 	conn.Close()
 	delete(sc.Clients, conn.RemoteAddr().(*net.TCPAddr))
 }
 
-func (cc *ClientConnector) closeConn(conn *net.TCPConn) {
+// CloseConn implements the CouldCloseConn interface
+func (cc *ClientConnector) CloseConn(conn *net.TCPConn) {
 	cc.LogDebug("close connection of %v\n", conn.RemoteAddr())
 	conn.Close()
+}
+
+// SetupConnection setups methods that handles a request, including receiving message,
+// waiting for outbound message, dispatch response to corresponding request and handle request
+func (connector *Connector) SetupConnection(handler ConnectionHandler, peer *Peer) {
+	go func() {
+		err := peer.Hub.WaitInbound()
+		if err != nil {
+			connector.LogDebug("error on WaitInbound: %v\n", err)
+			handler.HandleError(err)
+		}
+		connector.CloseConn(peer.Hub.Conn)
+	}()
+
+	go func() {
+		err := peer.Hub.WaitOutbound()
+		if err != nil {
+			connector.LogDebug("error on WaitOutbound: %v\n", err)
+			handler.HandleError(err)
+		}
+		connector.CloseConn(peer.Hub.Conn)
+	}()
+
+	go func() {
+		err := peer.Hub.DispatchResponse()
+		if err != nil {
+			connector.LogDebug("error on DispatchResponse: %v\n", err)
+			handler.HandleError(err)
+		}
+		connector.CloseConn(peer.Hub.Conn)
+	}()
+
+	go func() {
+		err := handler.HandleRequest(peer)
+		if err != nil {
+			connector.LogDebug("error on handle connection: %v\n", err)
+			handler.HandleError(err)
+		}
+		connector.CloseConn(peer.Hub.Conn)
+	}()
 }
 
 // Dial dials to client, should be used when try to reconnect to peer
@@ -158,33 +212,7 @@ func (sc *ServerConnector) Dial(handler ConnectionHandler, clientDialAddr *net.T
 	hub := NewHub(conn, handler.HandleError)
 	peer := NewPeer(hub, "", "", addr, nil)
 	sc.Clients[addr] = peer
-
-	go func() {
-		err := hub.WaitInbound()
-		if err != nil {
-			sc.LogDebug("error on WaitInbound: %v\n", err)
-			handler.HandleError(err)
-		}
-		sc.closeConn(conn)
-	}()
-
-	go func() {
-		err := hub.WaitOutbound()
-		if err != nil {
-			sc.LogDebug("error on WaitOutbound: %v\n", err)
-			handler.HandleError(err)
-		}
-		sc.closeConn(conn)
-	}()
-
-	go func() {
-		err := handler.HandleRequest(peer)
-		if err != nil {
-			sc.LogDebug("error on handle connection: %v\n", err)
-			handler.HandleError(err)
-		}
-		sc.closeConn(conn)
-	}()
+	sc.SetupConnection(handler, peer)
 	return nil
 }
 
@@ -207,33 +235,7 @@ func (sc *ServerConnector) Listen(handler ConnectionHandler) error {
 		hub := NewHub(conn, handler.HandleError)
 		peer := NewPeer(hub, "", "", addr, nil)
 		sc.Clients[addr] = peer
-
-		go func() {
-			err := hub.WaitInbound()
-			if err != nil {
-				sc.LogDebug("error on WaitInbound: %v\n", err)
-				handler.HandleError(err)
-			}
-			sc.closeConn(conn)
-		}()
-
-		go func() {
-			err := hub.WaitOutbound()
-			if err != nil {
-				sc.LogDebug("error on WaitOutbound: %v\n", err)
-				handler.HandleError(err)
-			}
-			sc.closeConn(conn)
-		}()
-
-		go func() {
-			err := handler.HandleRequest(peer)
-			if err != nil {
-				sc.LogDebug("error on handle connection: %v\n", err)
-				handler.HandleError(err)
-			}
-			sc.closeConn(conn)
-		}()
+		sc.SetupConnection(handler, peer)
 	}
 }
 
@@ -249,33 +251,7 @@ func (cc *ClientConnector) Dial(handler ConnectionHandler, serverAddr *net.TCPAd
 	cc.ServerRemoteAddr = conn.RemoteAddr().(*net.TCPAddr)
 	hub := NewHub(conn, handler.HandleError)
 	cc.Peer = NewPeer(hub, "", "", cc.ServerRemoteAddr, nil)
-
-	go func() {
-		err := hub.WaitInbound()
-		if err != nil {
-			cc.LogDebug("error on WaitInbound: %v\n", err)
-			handler.HandleError(err)
-		}
-		cc.closeConn(conn)
-	}()
-
-	go func() {
-		err := hub.WaitOutbound()
-		if err != nil {
-			cc.LogDebug("error on WaitOutbound: %v\n", err)
-			handler.HandleError(err)
-		}
-		cc.closeConn(conn)
-	}()
-
-	go func() {
-		err := handler.HandleRequest(cc.Peer)
-		if err != nil {
-			cc.LogDebug("error on handle connection: %v\n", err)
-			handler.HandleError(err)
-		}
-		cc.closeConn(conn)
-	}()
+	cc.SetupConnection(handler, cc.Peer)
 	return nil
 }
 
@@ -298,46 +274,22 @@ func (cc *ClientConnector) Listen(handler ConnectionHandler) error {
 		cc.LogDebug("accepted connection: %v\n", serverAddr)
 		hub := NewHub(conn, handler.HandleError)
 		cc.Peer = NewPeer(hub, "", "", serverAddr, nil)
-
-		go func() {
-			err := hub.WaitInbound()
-			if err != nil {
-				cc.LogDebug("error on WaitInbound: %v\n", err)
-				handler.HandleError(err)
-			}
-			cc.closeConn(conn)
-		}()
-
-		go func() {
-			err := hub.WaitOutbound()
-			if err != nil {
-				cc.LogDebug("error on WaitOutbound: %v\n", err)
-				handler.HandleError(err)
-			}
-			cc.closeConn(conn)
-		}()
-
-		go func() {
-			err := handler.HandleRequest(cc.Peer)
-			if err != nil {
-				cc.LogDebug("error on handle connection: %v\n", err)
-				handler.HandleError(err)
-			}
-			cc.closeConn(conn)
-		}()
+		cc.SetupConnection(handler, cc.Peer)
 	}
 }
 
-// HandleRequest boilerplates connection handling
+// HandleRequest boilerplates connection handling.
+// It should returns error only when the error should cause connnection to be closed,
+// otherwise should just continue for next loop to process incoming requests.
 func HandleRequest(peer *Peer, handler ConnectionHandler) error {
 	for {
 		req, err := peer.Hub.ReceiveRequest()
 		if err != nil {
-			if err == ErrorEmptyContent || err == io.EOF {
+			if err == ErrorPeerSocketClosed {
 				// peer socket is closed
 				return nil
 			}
-			handler.LogError("error on receiving message: %v\n", err)
+			handler.LogError("error on receiving request: %v\n", err)
 			continue
 		}
 		peer.Username = req.Username
@@ -360,13 +312,23 @@ func HandleRequest(peer *Peer, handler ConnectionHandler) error {
 	}
 }
 
-func getDockerMachineDefaultIP() (string, error) {
-	cmd := "docker-machine"
-	args := []string{"ip", "default"}
-	bytes, err := exec.Command(cmd, args...).Output()
-	if err != nil {
-		return "", err
+// SendWithRetry sends message with retry, it also try to  dial if connection is broken
+func SendWithRetry(handler ConnectionHandler, callback Callback, addr *net.TCPAddr) error {
+	var err error
+	for i := 0; i < SendMessageMaxRetry; i++ {
+		if err = callback(); err != nil {
+			handler.LogDebug("error in SendWithRetry: %v,\n retry count: %v\n", err, i)
+			if err == ErrorPeerSocketClosed || strings.HasSuffix(err.Error(), "use of closed network connection") {
+				if dialErr := handler.Dial(handler, addr); dialErr != nil {
+					handler.LogDebug("error on retry Dial in SendWithRetry: %v\n", dialErr)
+					time.Sleep(SendMessageRestPeriod)
+				}
+			} else {
+				time.Sleep(SendMessageRestPeriod)
+			}
+		} else {
+			break
+		}
 	}
-	output := strings.Trim(string(bytes), "\n")
-	return output, err
+	return err
 }
