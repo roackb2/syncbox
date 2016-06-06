@@ -5,14 +5,65 @@ Term Project for National Taiwan University 2016 course Cloud Computing：Techno
 ## What is this?
 
 Syncbox is a Dropbox-like service, that enables synchronization between devices for certain folder.
-User runs a process by issuing `sb-client` with flags to specify a folder to watch,
+User runs a process by issuing `sb-client` with flags to specify a folder to watch, and the user authentication information,
 then the service would synchronize this folder across the user's devices.
 
 
 ## Building Project
 
-As this is a project for academic purpose, building process would be elaborated after the project is completed and ready for open source community.
+## Prerequisite
 
+* Golang:
+This project is written in Golang, users who want to build the project should have their Golang environment correctly setup, including the `$GOROOT` and the `$GOPATH` environment variables.
+
+* Docker:
+Also, the server is intended to be run in Docker containers, so developer should have their local Docker environment ready.
+
+* AWS CLI:
+Makefile commands rely on AWS Command Line Tools to communicate with AWS.
+
+* AWS S3:
+The server defaults to store files in S3, user should have their S3 service ready for development.
+
+* MySQL:
+The server defaults to store relations in MySQL database, you could user AWS RDS for this.
+
+* Environment Variables:
+The server and client takes some environment variables to identify server host, storage, database ip, etc.
+
+## Steps
+* `go get github.com/roackb2/syncbox`
+* `cd "$GOPATH"/src/github.com/roackb2/syncbox`
+* exports environment variables, like following:
+```shell
+export SB_SERVER_HOST="[localhost or server ip]"
+export SB_DB_USER="[MySQL username]"
+export SB_DB_PWD="[MySQL user password]"
+export SB_DB_HOST="[MySQL server ip]"
+export SB_DB_PORT="[MySQL connection port]"
+export SB_DB_DATABASE="[MySQL database]"
+export SB_DOCKER_REGISTRY="[AWS ECS registry host]"
+```
+content inside brackets (including the brackets) should be substituted with real values, depending on your development environment.
+* `make build-base`, this builds a base image with Golang image and network utilities installed, to speed up further buildings.
+* `make build-and-run-server`, this would run the server in local Docker container
+* `mkdir test-target`, the client application default to  watch content of this folder and synchronize it.
+* open a new terminal session, issue `make build-and-run-client`, this would build the client application and run the Go installed command of the client application.
+
+## Deployment of Server Application
+
+The server is intended to be run in cloud native way, which means it should run in Docker containers.
+The development process was established by running on AWS ECS, you could also use Container Service of Google Cloud Platform or any bare-metal machines with container orchestration mechanism like Kubernetes to serve as the backend. In short, any cloud native backend structure would be suitable to run the server.
+
+Local development could run the server inside containers on users' local machine.
+
+The Makefile contains commands for easy building for local development and pushing image to AWS container registry, users could use AWS web console to create container cluster, service, and task to run the server application.
+
+## Limitation
+
+Currently if user modify files on one device, it has to wait for another device to be totally synchronized for further modification, otherwise modification may be overwritten by the newer version.
+
+Also, transporting granularity is file, large files would now fail due to operation timeout. Future work might try to improve granularity to chunks to support large file synchronization.
 
 ## History
 
