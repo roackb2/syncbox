@@ -45,9 +45,9 @@ The server defaults to store relations in MySQL database, you could user AWS RDS
 The server and client takes some environment variables to identify server host, storage, database ip, etc.
 
 ## Steps
-1. `go get github.com/roackb2/syncbox`
-2. `cd "$GOPATH"/src/github.com/roackb2/syncbox`
-3. exports environment variables, like following:
+* `go get github.com/roackb2/syncbox`
+* `cd "$GOPATH"/src/github.com/roackb2/syncbox`
+* exports environment variables, like following:
 ```shell
 export SB_SERVER_HOST="[localhost or server ip]"
 export SB_DB_USER="[MySQL username]"
@@ -59,10 +59,10 @@ export SB_DOCKER_REGISTRY="[AWS ECS registry host]"
 ```
 content inside brackets (including the brackets) should be substituted with real values, depending on your development environment.
 
-4. `make build-base`, this builds a base image with Golang image and network utilities installed, to speed up further buildings.
-5. `make build-and-run-server`, this would run the server in local Docker container
-6. `mkdir test-target`, the client application default to  watch content of this folder and synchronize it.
-7. open a new terminal session, issue `make build-and-run-client`, this would build the client application and run the Go installed command of the client application.
+* `make build-base`, this builds a base image with Golang image and network utilities installed, to speed up further buildings.
+* `make build-and-run-server`, this would run the server in local Docker container
+* `mkdir test-target`, the client application default to  watch content of this folder and synchronize it.
+* open a new terminal session, issue `make build-and-run-client`, this would build the client application and run the Go installed command of the client application.
 
 ## Deployment of Server Application
 
