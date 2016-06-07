@@ -2,6 +2,8 @@
 
 Term Project for National Taiwan University 2016 course Cloud Computing：Technology and Applications.
 
+This project aims to practice socket programming between server and client, cloud infrastructure and system architecture design and implementation, and distributed system programming, by building a file synchronization service, which is scalable, reliable, highly available and fault tolerant.
+
 ## What is this?
 
 Syncbox is a Dropbox-like service, that enables synchronization between devices for certain folder.
@@ -63,7 +65,7 @@ The Makefile contains commands for easy building for local development and pushi
 
 Currently if user modify files on one device, it has to wait for another device to be totally synchronized for further modification, otherwise modification may be overwritten by the newer version.
 
-Also, transporting granularity is file, large files would now fail due to operation timeout. Future work might try to improve granularity to chunks to support large file synchronization.
+Also, transporting granularity is file, large files would now fail due to operation timeout (how large the file could be transported depends on network bandwidth). Future work might try to improve granularity to chunks to support large file synchronization.
 
 ## History
 

@@ -14,9 +14,10 @@ const (
 	RequestPrefix  = 'q'
 	ResponsePrefix = 's'
 
+	PacketIDSIze    = 16
+	PacketAddrSize  = 8
 	PacketDataSize  = 1024
-	PacketAddrSize  = 8 // roughly allow 4000 GB message size
-	PacketTotalSize = 1040
+	PacketTotalSize = 1056
 
 	ByteDelim   = byte(4)
 	StringDelim = string(ByteDelim)
@@ -39,9 +40,10 @@ const (
 
 // Packet is a fixed length message as the basic element to send acrosss network
 type Packet struct {
-	Size     [PacketAddrSize]byte // size is the maximun number of Sequence for packets consist of this message
-	Sequence [PacketAddrSize]byte
-	Data     [PacketDataSize]byte
+	MessageID [PacketIDSIze]byte
+	Size      [PacketAddrSize]byte // size is the maximun number of Sequence for packets consist of this message
+	Sequence  [PacketAddrSize]byte
+	Data      [PacketDataSize]byte
 }
 
 func (packet *Packet) String() string {
@@ -49,9 +51,12 @@ func (packet *Packet) String() string {
 }
 
 // NewPacket instantiates a packet
-func NewPacket(size int64, sequence int64, data [PacketDataSize]byte) (*Packet, error) {
+func NewPacket(messageID string, size int64, sequence int64, data [PacketDataSize]byte) (*Packet, error) {
+	var messageIDarr [16]byte
+	copy(messageIDarr[:], []byte(messageID))
 	packet := &Packet{
-		Data: data,
+		MessageID: messageIDarr,
+		Data:      data,
 	}
 	if err := packet.SetSize(size); err != nil {
 		return nil, err
@@ -129,18 +134,28 @@ func (packet *Packet) GetSequence() (int64, error) {
 // ToBytes transfer a Packet to fixed length byte array
 func (packet *Packet) ToBytes() [PacketTotalSize]byte {
 	var bytes [PacketTotalSize]byte
-	copy(bytes[0:PacketAddrSize], packet.Size[:])
-	copy(bytes[PacketAddrSize:2*PacketAddrSize], packet.Sequence[:])
-	copy(bytes[2*PacketAddrSize:PacketTotalSize], packet.Data[:])
+	offset := 0
+	copy(bytes[offset:offset+PacketIDSIze], packet.MessageID[:])
+	offset += PacketIDSIze
+	copy(bytes[offset:offset+PacketAddrSize], packet.Size[:])
+	offset += PacketAddrSize
+	copy(bytes[offset:offset+PacketAddrSize], packet.Sequence[:])
+	offset += PacketAddrSize
+	copy(bytes[offset:PacketTotalSize], packet.Data[:])
 	return bytes
 }
 
 // RebornPacket reborn a packet from a fixed length byte array
 func RebornPacket(data [PacketTotalSize]byte) *Packet {
 	var packet Packet
-	copy(packet.Size[:], data[0:PacketAddrSize])
-	copy(packet.Sequence[:], data[PacketAddrSize:2*PacketAddrSize])
-	copy(packet.Data[:], data[2*PacketAddrSize:PacketTotalSize])
+	offset := 0
+	copy(packet.MessageID[:], data[offset:offset+PacketIDSIze])
+	offset += PacketIDSIze
+	copy(packet.Size[:], data[offset:offset+PacketAddrSize])
+	offset += PacketAddrSize
+	copy(packet.Sequence[:], data[offset:offset+PacketAddrSize])
+	offset += PacketAddrSize
+	copy(packet.Data[:], data[offset:PacketTotalSize])
 	return &packet
 }
 
@@ -149,6 +164,7 @@ func Serialize(data []byte) ([]*Packet, error) {
 	size := int64(math.Ceil(float64(len(data)) / PacketDataSize))
 	var packets []*Packet
 	var sequence int64
+	messageID := UUID()
 	for sequence = 0; sequence < size; sequence++ {
 		var payload [PacketDataSize]byte
 		if sequence == size-1 {
@@ -156,7 +172,7 @@ func Serialize(data []byte) ([]*Packet, error) {
 		} else {
 			copy(payload[:], data[sequence*PacketDataSize:(sequence+1)*PacketDataSize])
 		}
-		packet, err := NewPacket(size, sequence, payload)
+		packet, err := NewPacket(messageID, size, sequence, payload)
 		if err != nil {
 			return nil, err
 		}
@@ -167,6 +183,7 @@ func Serialize(data []byte) ([]*Packet, error) {
 
 // Deserialize transfer a series of packets to some data (a request or response)
 func Deserialize(packets []*Packet) []byte {
+	// fmt.Printf("packets to Deserialize: %v\n", packets)
 	var packetsCount = int64(len(packets))
 	var dataSize = packetsCount * PacketDataSize
 	data := make([]byte, dataSize)

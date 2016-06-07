@@ -19,7 +19,7 @@ const (
 
 	SendMessageRestPeriod  = 2 * time.Second
 	SendMessageMaxRetry    = 10
-	OperationTimeoutPeriod = 1 * time.Minute
+	OperationTimeoutPeriod = 5 * time.Minute
 )
 
 // variables
@@ -34,8 +34,11 @@ type RequestHandler func(*Peer) error
 // ErrorHandler function type for server to deal with errors when handling connections
 type ErrorHandler func(error)
 
-// Callback is arbitrary function that returns error if there's one
+// Callback is arbitrary function type that returns error if there's one
 type Callback func() error
+
+// CallbackWithoutError is arbitrary function type that returns nothing
+type CallbackWithoutError func()
 
 // CouldCloseConn represents an interface that supports closing a connection
 type CouldCloseConn interface {
@@ -173,27 +176,9 @@ func (cc *ClientConnector) CloseConn(conn *net.TCPConn) {
 // waiting for outbound message, dispatch response to corresponding request and handle request
 func (connector *Connector) SetupConnection(handler ConnectionHandler, peer *Peer, conn *net.TCPConn) {
 	go func() {
-		err := peer.Hub.WaitInbound()
+		err := peer.Hub.Setup()
 		if err != nil {
 			connector.LogDebug("error on WaitInbound: %v\n", err)
-			handler.HandleError(err)
-		}
-		connector.CloseConn(conn)
-	}()
-
-	go func() {
-		err := peer.Hub.WaitOutbound()
-		if err != nil {
-			connector.LogDebug("error on WaitOutbound: %v\n", err)
-			handler.HandleError(err)
-		}
-		connector.CloseConn(conn)
-	}()
-
-	go func() {
-		err := peer.Hub.DispatchResponse()
-		if err != nil {
-			connector.LogDebug("error on DispatchResponse: %v\n", err)
 			handler.HandleError(err)
 		}
 		connector.CloseConn(conn)

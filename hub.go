@@ -10,52 +10,77 @@ import (
 	"time"
 )
 
+// MessageQueueItem represents an item of the message queue
+type MessageQueueItem struct {
+	Packets      []*Packet
+	LastProgress int
+}
+
 // Hub is the network reading/writing hub for request/reponse,
 // it's the lowest level entry point for network connection
 type Hub struct {
 	*Logger
-	Conn                   *net.TCPConn
-	InboundRequest         chan []byte
-	OutboundRequest        chan []byte
-	InboundResponse        chan []byte
-	OutboundResponse       chan []byte
-	InboundRequestError    chan error
-	InboundResponseError   chan error
-	OutboundRequestFinish  chan bool
-	OutboundRequestError   chan error
-	OutboundResponseFinish chan bool
-	OutboundResponseError  chan error
-	RequestQueue           map[string]chan *Response
-	ErrorHandler           ErrorHandler
+	Conn                 *net.TCPConn
+	InboundMessage       chan []byte
+	InboundMessageError  chan error
+	InboundRequest       chan []byte
+	InboundRequestError  chan error
+	InboundResponse      chan []byte
+	InboundResponseError chan error
+	MessageQueue         map[[PacketIDSIze]byte]*MessageQueueItem
+	RequestQueue         map[string]chan *Response
+	ErrorHandler         ErrorHandler
 }
 
 // NewHub instantiates a Hub
 func NewHub(conn *net.TCPConn, eHandler ErrorHandler) *Hub {
 	hub := &Hub{
-		Conn:                   conn,
-		InboundRequest:         make(chan []byte),
-		OutboundRequest:        make(chan []byte),
-		InboundResponse:        make(chan []byte),
-		OutboundResponse:       make(chan []byte),
-		InboundRequestError:    make(chan error),
-		InboundResponseError:   make(chan error),
-		OutboundRequestFinish:  make(chan bool),
-		OutboundRequestError:   make(chan error),
-		OutboundResponseFinish: make(chan bool),
-		OutboundResponseError:  make(chan error),
-		RequestQueue:           make(map[string]chan *Response),
-		ErrorHandler:           eHandler,
-		Logger:                 NewDefaultLogger(),
+		Conn:                 conn,
+		InboundMessage:       make(chan []byte),
+		InboundMessageError:  make(chan error),
+		InboundRequest:       make(chan []byte),
+		InboundRequestError:  make(chan error),
+		InboundResponse:      make(chan []byte),
+		InboundResponseError: make(chan error),
+		MessageQueue:         make(map[[PacketIDSIze]byte]*MessageQueueItem),
+		RequestQueue:         make(map[string]chan *Response),
+		ErrorHandler:         eHandler,
+		Logger:               NewDefaultLogger(),
 	}
 	return hub
 }
 
-func (hub *Hub) writePackets(bytes []byte) error {
+// Setup runs the goroutines necessary for a hub to communicate via channels
+func (hub *Hub) Setup() error {
+	errChan := make(chan error)
+	go func() {
+		if err := hub.ReceivePackets(); err != nil {
+			hub.LogDebug("error on ReceivePackets in Setup: %v\n", err)
+			errChan <- err
+		}
+	}()
+	go func() {
+		if err := hub.ReceiveMessage(); err != nil {
+			hub.LogDebug("error on ReceiveMessage in Setup: %v\n", err)
+			errChan <- err
+		}
+	}()
+	go func() {
+		if err := hub.DispatchResponse(); err != nil {
+			hub.LogDebug("error on DispatchResponse in Setup: %v\n", err)
+			errChan <- err
+		}
+	}()
+	return <-errChan
+}
+
+func (hub *Hub) sendPackets(bytes []byte) error {
 	packets, err := Serialize(bytes)
 	if err != nil {
 		return err
 	}
 	for _, packet := range packets {
+		hub.LogVerbose("packet to send: %v\n", packet)
 		data := packet.ToBytes()
 		dataSlice := make([]byte, PacketTotalSize)
 		copy(dataSlice, data[:])
@@ -68,9 +93,41 @@ func (hub *Hub) writePackets(bytes []byte) error {
 	return nil
 }
 
-func (hub *Hub) readPackets() ([]byte, error) {
-	var packets []*Packet
-	lastProgress := 0
+func (hub *Hub) sendMessage(message []byte, prefix rune) error {
+	message = append(message, ByteDelim) // appends delim
+	switch prefix {
+	case RequestPrefix:
+		message = append([]byte{byte(RequestPrefix)}, message...) // unshift request prefix
+		hub.LogVerbose("outbound request message: %v\n", string(message))
+		return hub.sendPackets(message)
+	case ResponsePrefix:
+		message = append([]byte{byte(ResponsePrefix)}, message...) // unshift request prefix
+		hub.LogVerbose("outbound response message: %v\n", string(message))
+		return hub.sendPackets(message)
+	default:
+		return errors.New("unknown message type: " + string(prefix))
+	}
+}
+
+func (hub *Hub) handlePacketFullness(size int64, sequence int64, packet *Packet, item *MessageQueueItem) {
+	full := true
+	var i int64
+	for i = 0; i < size; i++ {
+		if item.Packets[i] == nil {
+			full = false
+		}
+	}
+	if full {
+		data := Deserialize(item.Packets)
+		data = bytes.TrimRight(data, string([]byte{0})) // trim trailing zero char in last packet
+		hub.InboundMessage <- data
+		delete(hub.MessageQueue, packet.MessageID)
+	}
+}
+
+// ReceivePackets waits to read from the connection of the hub,
+// this should be run as goroutine.
+func (hub *Hub) ReceivePackets() error {
 	for {
 		buffer := make([]byte, PacketTotalSize, PacketTotalSize)
 		readSize := 0
@@ -78,117 +135,82 @@ func (hub *Hub) readPackets() ([]byte, error) {
 		for readSize < PacketTotalSize {
 			n, err := (*hub.Conn).Read(buffer[readSize:len(buffer)])
 			if err != nil {
-				hub.LogDebug("error on readPackets: %v\n", err)
-				return nil, err
+				hub.LogDebug("error on ReceivePackets: %v\n", err)
+				hub.InboundMessageError <- err
 			}
 			readSize += n
 		}
 		var bufferArr [PacketTotalSize]byte
 		copy(bufferArr[:], buffer)
 		packet := RebornPacket(bufferArr)
-		packets = append(packets, packet)
+		hub.LogVerbose("packet received: %v\n", packet)
+
 		size, err := packet.GetSize()
 		if err != nil {
-			return nil, err
+			hub.InboundMessageError <- err
 		}
 		sequence, err := packet.GetSequence()
 		if err != nil {
-			return nil, err
+			hub.InboundMessageError <- err
 		}
-		progress := int(math.Floor(float64(sequence) / float64(size) * 100))
-		if size > 10000 && (progress%10 == 0) && progress != lastProgress {
-			hub.LogInfo("progress reading inbound message: %v%%\n", progress)
-			lastProgress = progress
-		}
-		if sequence >= size-1 {
-			break
+		item, exists := hub.MessageQueue[packet.MessageID]
+		if exists {
+			item.Packets[sequence] = packet
+			progress := int(math.Floor(float64(sequence) / float64(size) * 100))
+			if size > 10000 && (progress%10 == 0) && progress != item.LastProgress {
+				hub.LogInfo("progress reading inbound message: %v%%\n", progress)
+			}
+			hub.handlePacketFullness(size, sequence, packet, item)
+		} else {
+			packets := make([]*Packet, size, size)
+			packets[sequence] = packet
+			item = &MessageQueueItem{
+				Packets:      packets,
+				LastProgress: 0,
+			}
+			hub.MessageQueue[packet.MessageID] = item
+			hub.handlePacketFullness(size, sequence, packet, item)
 		}
 	}
-	data := Deserialize(packets)
-	data = bytes.TrimRight(data, string([]byte{0})) // trim trailing zero char in last packet
-	return data, nil
 }
 
-// WaitInbound waits for inbound message and dispatch to InboundRequest or InboundResponse channel accordingly,
+// ReceiveMessage waits for inbound message and dispatch to InboundRequest or InboundResponse channel accordingly,
 // this should be run as goroutine/
 // It returns error if an error is considered as connection level, such as EOF or unknonw message type,
 // and leave for the connectors to deal with error,
 // otherwise it sends the error to InboundRequestError or InboundResponseError channel accordingly.
-func (hub *Hub) WaitInbound() error {
+func (hub *Hub) ReceiveMessage() error {
 	for {
-		message, err := hub.readPackets()
-		if len(message) > 0 {
-			message = message[0 : len(message)-1]
-		}
-		if err != nil {
+		// message, err := hub.readPackets()
+		select {
+		case message := <-hub.InboundMessage:
+			hub.LogVerbose("message received: %v\n", message)
+			if len(message) > 0 {
+				message = message[0 : len(message)-1]
+			}
+			if len(message) == 0 {
+				hub.LogDebug("peer socket closed\n")
+				return ErrorPeerSocketClosed
+			}
+			prefix := message[0]
+			message = message[1:len(message)]
+			switch prefix {
+			case RequestPrefix:
+				hub.LogVerbose("inbound request message: %v\n", string(message))
+				hub.InboundRequest <- message
+			case ResponsePrefix:
+				hub.LogVerbose("inbound response message: %v\n", string(message))
+				hub.InboundResponse <- message
+			default:
+				return errors.New("unknown message type: " + string(prefix))
+			}
+		case err := <-hub.InboundMessageError:
 			if err == io.EOF {
 				hub.LogDebug("peer socket closed\n")
 				return ErrorPeerSocketClosed
 			}
 			hub.LogVerbose("error in waitInbound: %v\n", err)
-		}
-		if len(message) == 0 {
-			hub.LogDebug("peer socket closed\n")
-			return ErrorPeerSocketClosed
-		}
-		prefix := message[0]
-		if err != nil {
-			switch prefix {
-			case RequestPrefix:
-				hub.LogVerbose("inbound request error: %v\n", err)
-				hub.InboundRequestError <- err
-			case ResponsePrefix:
-				hub.LogVerbose("inbound response error: %v\n", err)
-				hub.InboundResponseError <- err
-			default:
-				return errors.New("unknown message type: " + string(prefix))
-			}
 			continue
-		}
-		message = message[1:len(message)]
-		switch prefix {
-		case RequestPrefix:
-			hub.LogVerbose("inbound request message: %v\n", string(message))
-			hub.InboundRequest <- message
-		case ResponsePrefix:
-			hub.LogVerbose("inbound response message: %v\n", string(message))
-			hub.InboundResponse <- message
-		default:
-			return errors.New("unknown message type: " + string(prefix))
-		}
-	}
-}
-
-// WaitOutbound waits on the OutboundRequest and OutboundResponse channel and send message to the connection.
-// this Should be run as goroutine.
-// It returns error if an error is considered as connection level, such as EOF or unknonw message type,
-// and leave for the connectors to deal with error,
-// otherwise it sends the error to OutboundRequestError or OutboundResponseError channel accordingly.
-func (hub *Hub) WaitOutbound() error {
-	for {
-		select {
-		case message := <-hub.OutboundRequest:
-			hub.LogVerbose("outbound request message: %v\n", string(message))
-			message = append(message, ByteDelim)                      // appends delim
-			message = append([]byte{byte(RequestPrefix)}, message...) // unshift request prefix
-			err := hub.writePackets(message)
-			if err != nil {
-				hub.LogDebug("error on writePackets in waitOutbound: %v\n", err)
-				hub.OutboundRequestError <- err
-			} else {
-				hub.OutboundRequestFinish <- true
-			}
-		case message := <-hub.OutboundResponse:
-			hub.LogVerbose("outbound response message: %v\n", string(message))
-			message = append(message, ByteDelim)                       // append delim
-			message = append([]byte{byte(ResponsePrefix)}, message...) // unshift response prefix
-			err := hub.writePackets(message)
-			if err != nil {
-				hub.LogDebug("error on writePackets in waitOutbound: %v\n", err)
-				hub.OutboundResponseError <- err
-			} else {
-				hub.OutboundResponseFinish <- true
-			}
 		}
 	}
 }
@@ -216,7 +238,6 @@ func (hub *Hub) DispatchResponse() error {
 		} else {
 			hub.LogDebug("request not found in DispatchResponse, request id: %v\n", id)
 		}
-
 	}
 }
 
@@ -261,13 +282,7 @@ func (hub *Hub) SendRequest(req *Request) error {
 		hub.LogDebug("error on json Marshal in SendRequest: %v\n", err)
 		return err
 	}
-	hub.OutboundRequest <- bytes
-	select {
-	case <-hub.OutboundRequestFinish:
-		return nil
-	case err := <-hub.OutboundRequestError:
-		return err
-	}
+	return hub.sendMessage(bytes, RequestPrefix)
 }
 
 // SendResponse sends a response to the hub
@@ -278,13 +293,7 @@ func (hub *Hub) SendResponse(req *Request, res *Response) error {
 		hub.LogDebug("error on json Marshal in SendResponse: %v\n", err)
 		return err
 	}
-	hub.OutboundResponse <- bytes
-	select {
-	case <-hub.OutboundResponseFinish:
-		return nil
-	case err := <-hub.OutboundResponseError:
-		return err
-	}
+	return hub.sendMessage(bytes, ResponsePrefix)
 }
 
 // SendRequestForResponse sends a request and waits for response,
