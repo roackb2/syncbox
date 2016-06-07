@@ -29,25 +29,25 @@ then the service would synchronize this folder across the user's devices.
 1. Golang:
 This project is written in Golang, users who want to build the project should have their Golang environment correctly setup, including the `$GOROOT` and the `$GOPATH` environment variables.
 
-* Docker:
+2. Docker:
 Also, the server is intended to be run in Docker containers, so developer should have their local Docker environment ready.
 
-* AWS CLI:
+3. AWS CLI:
 Makefile commands rely on AWS Command Line Tools to communicate with AWS.
 
-* AWS S3:
+4. AWS S3:
 The server defaults to store files in S3, user should have their S3 service ready for development.
 
-* MySQL:
+5. MySQL:
 The server defaults to store relations in MySQL database, you could user AWS RDS for this.
 
-* Environment Variables:
+6. Environment Variables:
 The server and client takes some environment variables to identify server host, storage, database ip, etc.
 
 ## Steps
 1. `go get github.com/roackb2/syncbox`
-* `cd "$GOPATH"/src/github.com/roackb2/syncbox`
-* exports environment variables, like following:
+2. `cd "$GOPATH"/src/github.com/roackb2/syncbox`
+3. exports environment variables, like following:
 ```shell
 export SB_SERVER_HOST="[localhost or server ip]"
 export SB_DB_USER="[MySQL username]"
@@ -58,10 +58,10 @@ export SB_DB_DATABASE="[MySQL database]"
 export SB_DOCKER_REGISTRY="[AWS ECS registry host]"
 ```
 content inside brackets (including the brackets) should be substituted with real values, depending on your development environment.
-* `make build-base`, this builds a base image with Golang image and network utilities installed, to speed up further buildings.
-* `make build-and-run-server`, this would run the server in local Docker container
-* `mkdir test-target`, the client application default to  watch content of this folder and synchronize it.
-* open a new terminal session, issue `make build-and-run-client`, this would build the client application and run the Go installed command of the client application.
+4. `make build-base`, this builds a base image with Golang image and network utilities installed, to speed up further buildings.
+5. `make build-and-run-server`, this would run the server in local Docker container
+6. `mkdir test-target`, the client application default to  watch content of this folder and synchronize it.
+7. open a new terminal session, issue `make build-and-run-client`, this would build the client application and run the Go installed command of the client application.
 
 ## Deployment of Server Application
 
@@ -84,18 +84,18 @@ content inside brackets (including the brackets) should be substituted with real
     Packet may be segmented and have to call multiple read on the socket to get the full packet, this happens if the packet size exceeds the buffer size.
 
     Solution: This is solved by adding a protocol that enforce fixed packet size, and loop through socket reading until a full packet is read.
-* Packet Splicing
+2. Packet Splicing
 
     Multiple packets might be concatenated and will be read together via single read operation on the socket.
 
     Solution: This is also solved by adding protocol to limit packet size and only reads fixed length message.
-* Packet Interleaving
+3. Packet Interleaving
 
     Packets from different messages might interleaves if the messages come from different sending source and sends simultaneously.
 
     Solution: This is solved by adding message ID to packets, dispatch packets to their queuing message and assemble them back to a message.
 
-* Unstable Connection
+4. Unstable Connection
 
     Long living socket connection might be cut off due to server side connection policy.
 
