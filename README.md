@@ -58,6 +58,7 @@ export SB_DB_DATABASE="[MySQL database]"
 export SB_DOCKER_REGISTRY="[AWS ECS registry host]"
 ```
 content inside brackets (including the brackets) should be substituted with real values, depending on your development environment.
+
 4. `make build-base`, this builds a base image with Golang image and network utilities installed, to speed up further buildings.
 5. `make build-and-run-server`, this would run the server in local Docker container
 6. `mkdir test-target`, the client application default to  watch content of this folder and synchronize it.
