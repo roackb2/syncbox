@@ -25,6 +25,8 @@ git_branch_name = $(shell echo `branch_name=$$(git symbolic-ref -q HEAD) && \
 	branch_name=$${branch_name:-unamed_branch} && \
 	echo $$branch_name`)
 git_sha = $(shell echo `git rev-parse --short HEAD`)
+terraform_state_path = deploy/terraform.tfstate
+terraform_plan_path = deploy/plan
 
 # shortcut to merge dev branch to master branch
 git-merge-dev:
@@ -114,6 +116,15 @@ build-and-run-client: build-client run-client
 # build and install client command and run the client command with watching another folder
 build-and-run-second-client: build-client run-second-client
 
-
-
 build: build-base build-server build-client
+
+deploy-infra:
+	terraform plan -state=${terraform_state_path} -out=${terraform_plan_path} deploy
+	terraform apply -state=${terraform_state_path} ${terraform_plan_path}
+
+teardown-infra:
+	terraform plan -state=${terraform_state_path} -out=${terraform_plan_path} -destroy deploy
+	terraform destroy -state=${terraform_state_path} deploy
+
+show-infra-status:
+	terraform show ${terraform_state_path}
