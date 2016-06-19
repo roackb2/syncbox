@@ -38,7 +38,8 @@ Makefile commands rely on AWS Command Line Tools to communicate with AWS.
 
 4. AWS Access Key:
 To automat server infrastructure deployment, this project needs AWS access key to communicate with AWS.
-The variable should be set by you as environment variable, so there's no need to worry about confidential leak.
+The variable should be set by you as environment variable as described below,
+so there's no need to worry about credential leak.
 You could use your account root key or access key of an IAM user that has PowerUserAccess.
 
 5. AWS Key Pair:
