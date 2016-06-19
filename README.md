@@ -13,6 +13,7 @@ Domain Knowledge:
 * socket programming
 * cloud infrastructure planning
 * system architecture design & implementation
+* cloud infrastructure deployment automation
 * distributed programming
 
 ## What is this?
@@ -35,17 +36,22 @@ Also, the server is intended to be run in Docker containers, so developer should
 3. AWS CLI:
 Makefile commands rely on AWS Command Line Tools to communicate with AWS.
 
-4. AWS S3:
-The server defaults to store files in S3, user should have their S3 service ready for development.
+4. AWS Access Key:
+To automat server infrastructure deployment, this project needs AWS access key to communicate with AWS.
+The variable should be set by you as environment variable, so there's no need to worry about confidential leak.
+You could use your account root key or access key of an IAM user that has PowerUserAccess.
 
-5. MySQL:
-The server defaults to store relations in MySQL database, you could user AWS RDS for this.
+5. AWS Key Pair:
+You need to create a key pair named `sb-server` to automate deployment of the infrastructure,
+this is because Terraform currently don't support creating key pair,
+and this should be the only step that you need to accomplish on AWS web console.
 
 6. Environment Variables:
 The server and client takes some environment variables to identify server host, storage, database ip, etc.
 
 7. Terraform:
-This project use Terraform to deploy infra on AWS.
+This project uses [Terraform](https://www.terraform.io/) to deploy infra on AWS,
+you could visit the website to download it or use package manager to install.
 
 ## Steps
 * `go get github.com/roackb2/syncbox`
