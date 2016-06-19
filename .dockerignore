@@ -8,3 +8,5 @@ Makefile
 .gitignore
 .git
 .dockerignore
+deploy/
+build/

@@ -1,0 +1,74 @@
+[
+  {
+    "volumesFrom": [],
+    "memory": 3500,
+    "extraHosts": null,
+    "dnsServers": null,
+    "disableNetworking": null,
+    "dnsSearchDomains": null,
+    "portMappings": [
+      {
+        "hostPort": 8000,
+        "containerPort": 8000,
+        "protocol": "tcp"
+      }
+    ],
+    "hostname": null,
+    "essential": true,
+    "entryPoint": null,
+    "mountPoints": [],
+    "name": "sb-server",
+    "ulimits": null,
+    "dockerSecurityOptions": null,
+    "environment": [
+      {
+        "name": "SB_DB_HOST",
+        "value": "${sb_db_host}"
+      },
+      {
+        "name": "SB_SERVER_HOST",
+        "value": "${sb_server_host}"
+      },
+      {
+        "name": "SB_DB_USER",
+        "value": "${sb_db_user}"
+      },
+      {
+        "name": "SB_DB_DATABASE",
+        "value": "${sb_db_database}"
+      },
+      {
+        "name": "AWS_ACCESS_KEY_ID",
+        "value": "${aws_access_key_id}"
+      },
+      {
+        "name": "SB_DOCKER_REGISTRY",
+        "value": "${sb_docker_registry}"
+      },
+      {
+        "name": "AWS_SECRET_ACCESS_KEY",
+        "value": "${aws_secret_access_key}"
+      },
+      {
+        "name": "SB_DB_PORT",
+        "value": "${sb_db_port}"
+      },
+      {
+        "name": "SB_DB_PWD",
+        "value": "${sb_db_pwd}"
+      }
+    ],
+    "links": null,
+    "workingDirectory": "/go/src/github.com/roackb2/syncbox",
+    "readonlyRootFilesystem": null,
+    "image": "${sb_server_image}",
+    "command": [
+      "sb-server"
+    ],
+    "user": null,
+    "dockerLabels": null,
+    "logConfiguration": null,
+    "cpu": 1500,
+    "privileged": null
+  }
+]

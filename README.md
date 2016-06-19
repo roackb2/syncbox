@@ -44,27 +44,41 @@ The server defaults to store relations in MySQL database, you could user AWS RDS
 6. Environment Variables:
 The server and client takes some environment variables to identify server host, storage, database ip, etc.
 
+7. Terraform:
+This project use Terraform to deploy infra on AWS.
+
 ## Steps
 * `go get github.com/roackb2/syncbox`
 * `cd "$GOPATH"/src/github.com/roackb2/syncbox`
-* exports environment variables, like following:
+* exports environment variables for Makefile commands and Terraform commands, like following:
 ```shell
-export SB_SERVER_HOST="[localhost or server ip]"
-export SB_DB_USER="[MySQL username]"
-export SB_DB_PWD="[MySQL user password]"
-export SB_DB_HOST="[MySQL server ip]"
-export SB_DB_PORT="[MySQL connection port]"
-export SB_DB_DATABASE="[MySQL database]"
-export SB_DOCKER_REGISTRY="[AWS ECS registry host]"
+export AWS_ACCESS_KEY_ID="[your aws access key]"
+export AWS_SECRET_ACCESS_KEY="[your aws secret key]"
+export SB_DB_USER="[db user name]"
+export SB_DB_PWD="[db user password]"
+export SB_DB_PORT="3306"
+export SB_DB_DATABASE="[database]"
+export TF_VAR_DB_MASTER_USERNAME="[master user name of RDS]"
+export TF_VAR_DB_MASTER_PWD="[master user pwd of RDS]"
+export TF_VAR_AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+export TF_VAR_AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+export TF_VAR_SB_DB_USER=$SB_DB_USER
+export TF_VAR_SB_DB_PWD=$SB_DB_PWD
+export TF_VAR_SB_DB_PORT=$SB_DB_PORT
+export TF_VAR_SB_DB_DATABASE=$SB_DB_DATABASE
 ```
 content inside brackets (including the brackets) should be substituted with real values, depending on your development environment.
 
 * `make build-base`, this builds a base image with Golang image and network utilities installed, to speed up further buildings.
 * `make build-and-run-server`, this would run the server in local Docker container
 * `mkdir test-target`, the client application default to  watch content of this folder and synchronize it.
-* open a new terminal session, issue `make build-and-run-client`, this would build the client application and run the Go installed command of the client application.
+* open a new terminal session, issue `make build-and-run-client-with-local-server`, this would build the client application and run the Go installed command of the client application.
 
 ## Deployment of Server Application
+
+* Quick Deployment
+
+    issue `make deploy-infra`, this would deploy the infrastructure on AWS. This is achieved by using [Terraform](https://www.terraform.io/) to automate the deployment process.
 
 * Cloud Native Deployment
 
@@ -76,7 +90,7 @@ content inside brackets (including the brackets) should be substituted with real
 
 * Makefile Commands
 
-    The Makefile contains commands for easy building for local development and pushing image to AWS container registry, users could use AWS web console to create container cluster, service, and task to run the server application. Future work might add commands to forms the whole cluster, like using CloudFormation.
+    The Makefile contains targets for easy building for local development and remote deployment, see comments in Makefile to know more about available commands
 
 ## Identified Problems & Solution
 

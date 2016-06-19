@@ -4,3 +4,6 @@ test-target*/
 .DS_Store
 *.exe
 setup-env.sh
+*.tfstate
+*.tfstate.backup
+deploy/plan
