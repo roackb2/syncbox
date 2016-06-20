@@ -2,11 +2,11 @@
 provider "aws" {
     access_key = "${var.AWS_ACCESS_KEY_ID}"
     secret_key = "${var.AWS_SECRET_ACCESS_KEY}"
-    region     = "us-east-1"
+    region     = "${var.region}"
 }
 
 resource "aws_security_group" "sb_server_ports" {
-    name = "sb-server-ports"
+    name = "${var.project_name}-ports"
     description = "allow ports that sb-server uses"
 
     ingress {
@@ -94,10 +94,11 @@ resource "aws_security_group" "sb_server_ports" {
     }
 
     tags {
-        Name = "sb-server"
+        Name = "${var.project_name}"
     }
 }
 
+// diffrenet nameing due to convention on AWS documentation
 resource "aws_iam_role" "ecsInstanceRole" {
     name = "ecsInstanceRole"
     assume_role_policy = "${file("${path.module}/config/ecsInstanceRoleTrustRelationship.json")}"
@@ -121,21 +122,17 @@ resource "aws_iam_instance_profile" "ecs_instance_profile" {
 }
 
 resource "aws_launch_configuration" "as_conf" {
-    name = "sb-server-medium-conf"
+    name = "${var.project_name}-conf"
     image_id = "ami-2b3b6041"
-    instance_type = "t2.medium"
+    instance_type = "${server_instance_type}"
     iam_instance_profile = "${aws_iam_instance_profile.ecs_instance_profile.name}"
-    key_name = "sb-server"
+    key_name = "${var.key_name}"
     security_groups = ["${aws_security_group.sb_server_ports.id}"]
-    user_data = <<EOF
-    #!/bin/bash
-    sudo yum install -y aws-cli;
-    sudo aws s3 cp s3://sb-server-ecs-instance-data/ecs.config /etc/ecs/ecs.config;
-EOF
+    user_data = "${file("${path.module}/config/as_conf_user_data.sh")}"
 }
 
 resource "aws_elb" "elb" {
-    name = "sb-server-elb"
+    name = "${project_name}-elb"
     availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1e"]
     security_groups = ["${aws_security_group.sb_server_ports.id}"]
 
@@ -167,7 +164,7 @@ resource "aws_elb" "elb" {
     connection_draining_timeout = 400
 
     tags {
-        Name = "sb-server-elb"
+        Name = "${project_name}-elb"
     }
 }
 
@@ -176,13 +173,13 @@ output "elb_addr" {
 }
 
 resource "aws_autoscaling_group" "asg" {
-    name = "sb-server-medium-asg"
+    name = "${project_name}-asg"
     availability_zones = ["us-east-1a"]
-    max_size = 5
-    min_size = 2
+    max_size = "${var.autoscale_gropu_max_size}"
+    min_size = "${var.autoscale_group_min_size}"
     health_check_grace_period = 300
     health_check_type = "EC2"
-    desired_capacity = 2
+    desired_capacity = "${var.autoscale_group_desire_count}"
     force_delete = true
     load_balancers = ["${aws_elb.elb.name}"]
     launch_configuration = "${aws_launch_configuration.as_conf.name}"
@@ -193,7 +190,7 @@ resource "aws_autoscaling_group" "asg" {
 }
 
 resource "aws_s3_bucket" "sb_server_ecs_instance_data" {
-    bucket = "sb-server-ecs-instance-data"
+    bucket = "${project_name}-ecs-instance-data"
     acl = "private"
 }
 
@@ -205,11 +202,11 @@ resource "aws_s3_bucket_object" "ecs_config" {
 }
 
 resource "aws_db_instance" "sb_server_db" {
-    allocated_storage    = 10
+    allocated_storage    = "${var.db_instance_storage_size}"
     engine               = "mysql"
     engine_version       = "5.6.27"
-    instance_class       = "db.t2.micro"
-    name                 = "syncbox"
+    instance_class       = "${var.db_instance_class}"
+    name                 = "${project_name}-db"
     username             = "${var.DB_MASTER_USERNAME}"
     password             = "${var.DB_MASTER_PWD}"
     db_subnet_group_name = "default"
@@ -217,7 +214,7 @@ resource "aws_db_instance" "sb_server_db" {
     vpc_security_group_ids = ["${aws_security_group.sb_server_ports.id}"]
 
     tags {
-        Name = "sb-server"
+        Name = "${var.project_name}"
     }
 
     provisioner "local-exec" {
@@ -230,11 +227,11 @@ output "db_host" {
 }
 
 resource "aws_ecs_cluster" "sb_server_cluster" {
-    name = "sb-server"
+    name = "${var.project_name}"
 }
 
 resource "aws_ecr_repository" "registry" {
-    name = "sb-server"
+    name = "${var.project_name}"
 
     provisioner "local-exec" {
         command = "`aws ecr get-login --region ${var.region}`"
@@ -253,20 +250,21 @@ output "registry" {
     value = "${aws_ecr_repository.registry.repository_url}"
 }
 
+// different nameing due to convention on AWS documentation
 resource "aws_iam_role" "ecsServiceRole" {
     name = "ecsServiceRole"
     assume_role_policy = "${file("${path.module}/config/ecsServiceRoleTrustRelationship.json")}"
 }
 
 resource "aws_iam_role_policy" "sb_server_policy" {
-    name = "sb_server_policy"
+    name = "${var.project_name}_policy"
     role = "${aws_iam_role.ecsServiceRole.id}"
     policy =  "${file("${path.module}/config/ecsServiceRole.json")}"
 }
 
 
 resource "aws_iam_user" "sb_server_user" {
-    name = "sb-server"
+    name = "${var.project_name}"
 }
 
 resource "aws_iam_access_key" "sb_server_key" {
@@ -274,7 +272,7 @@ resource "aws_iam_access_key" "sb_server_key" {
 }
 
 resource "aws_iam_user_policy" "sb_server_user_policy" {
-    name = "test"
+    name = "${var.project_name}_user_policy"
     user = "${aws_iam_user.sb_server_user.name}"
     policy = "${file("${path.module}/config/sb-server-user-policy.json")}"
 }
@@ -290,28 +288,28 @@ resource "template_file" "sb_server_task_template" {
         sb_db_host = "${aws_db_instance.sb_server_db.address}"
         sb_db_port = "${var.SB_DB_PORT}"
         sb_db_user = "${var.SB_DB_USER}"
-        sb_db_database = "syncbox"
+        sb_db_database = "${var.SB_DB_DATABASE}"
         sb_db_pwd = "${var.SB_DB_PWD}"
         sb_docker_registry = "${aws_ecr_repository.registry.repository_url}"
     }
 }
 
 resource "aws_ecs_task_definition" "sb_server_task" {
-    family = "sb-server"
+    family = "${var.project_name}"
     container_definitions = "${template_file.sb_server_task_template.rendered}"
 }
 
 resource "aws_ecs_service" "sb_server_service" {
-    name = "sb-server"
+    name = "${var.project_name}"
     cluster = "${aws_ecs_cluster.sb_server_cluster.id}"
     task_definition = "${aws_ecs_task_definition.sb_server_task.arn}"
-    desired_count = 1
+    desired_count = "${var.ecs_service_desired_task_count}"
     iam_role = "${aws_iam_role.ecsServiceRole.arn}"
     depends_on = ["aws_iam_role_policy.sb_server_policy"]
 
     load_balancer {
         elb_name = "${aws_elb.elb.name}"
-        container_name = "sb-server"
+        container_name = "${var.project_name}"
         container_port = 8000
     }
 }

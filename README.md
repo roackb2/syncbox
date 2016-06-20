@@ -85,11 +85,23 @@ content inside brackets (including the brackets) should be substituted with real
 
 * Quick Deployment
 
-    issue `make deploy-infra`, this would deploy the infrastructure on AWS. This is achieved by using [Terraform](https://www.terraform.io/) to automate the deployment process.
+    Issue `make deploy-infra`, this would deploy the infrastructure on AWS. This is achieved by using [Terraform](https://www.terraform.io/) to automate the deployment process.
+
+    It defaults to create an Elastic Load Balancer with an Auto Scaling Group, an RDS database instance,
+    an S3 bucket, an ECS cluster, a task definition and an ECS service to run the server.
+
+    Configurations could be set by the Terraform variables in `deploy/variable.tf`,
+    and sensitive data should be given via environment variables like stated above.
+
+    > CAUTION: The infrastructure needed for this project is not under free tier plan,
+    you'll need to pay for any charge incurred by the deployment, and this will not be a small amount
+    if you keep the whole infrastructure to run a full month. You could issue `make teardown-infra` to
+    destroy all the resources created by the `make deploy-infra` command, and this should stop all
+    expenditure this project would incur.
 
 * Cloud Native Deployment
 
-    The server is intended to be run in cloud native way, which means it should run in Docker containers. The development process was established by running on AWS ECS, you could also use Container Service of Google Cloud Platform or any bare-metal machines with container orchestration mechanism like Kubernetes to serve as the backend. In short, any cloud native backend structure would be suitable to run the server.
+    The server is intended to be run in cloud native way, which means it should run in Docker containers. If you don't prefer the default deployment, you could also use Container Service of Google Cloud Platform or any bare-metal machines with container orchestration mechanism like Kubernetes to serve as the backend. In short, any cloud native backend structure would be suitable to run the server.
 
 * Local Development
 
