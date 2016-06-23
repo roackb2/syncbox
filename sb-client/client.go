@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ const (
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	client, err := NewClient()
 	if err != nil {
 		fmt.Printf("error on new client: %v\n", err)

@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/roackb2/syncbox"
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	server, err := NewServer()
 	if err != nil {
 		fmt.Printf("error on new server: %v\n", err)
