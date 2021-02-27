@@ -65,12 +65,12 @@ run-server-local:
 	-p $(server_container_port):$(server_container_port) \
 	-e "AWS_ACCESS_KEY_ID=$(aws_access_key_id)" \
 	-e "AWS_SECRET_ACCESS_KEY=$(aws_secret_access_key)" \
-	-e "SB_SERVER_HOST=$(sb_server_host)" \
-	-e "SB_DB_USER=$(sb_db_user)" \
-	-e "SB_DB_PWD=$(sb_db_pwd)" \
-	-e "SB_DB_HOST=$(sb_db_host)" \
-	-e "SB_DB_PORT=$(sb_db_port)" \
-	-e "SB_DB_DATABASE=$(sb_db_database)" \
+	-e "SB_SERVER_HOST=localhost" \
+	-e "SB_DB_USER=$$SB_DB_USER" \
+	-e "SB_DB_PWD=$$SB_DB_PWD" \
+	-e "SB_DB_HOST=$$SB_DB_HOST" \
+	-e "SB_DB_PORT=$$SB_DB_PORT" \
+	-e "SB_DB_DATABASE=$$SB_DB_DATABASE" \
 	$(server_program_name):latest \
 	$(server_program_name)
 
