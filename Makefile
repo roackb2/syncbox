@@ -1,31 +1,26 @@
-
+include envs/prod.Makefile
+-include local/Makefile
 base_dockerfile = build/base.Dockerfile
 server_dockerfile = build/server.Dockerfile
 server_program_name = sb-server
 client_program_name = sb-client
-aws_default_region = us-east-1
 simple_base_image_name = go-base
-server_image_name = $(subst https://,,$(shell terraform output -state=$(terraform_state_path) registry))
-server_image_version = $(git_branch_name)-$(git_sha)
-server_image_with_version = $(server_image_name):$(server_image_version)
-server_container_port = 8000
-aws_access_key_id = $(shell echo $$AWS_ACCESS_KEY_ID)
-aws_secret_access_key = $(shell echo $$AWS_SECRET_ACCESS_KEY)
-ecr_get_login = $(shell aws ecr get-login --region $(aws_default_region))
-sb_server_host = $(shell terraform output -state=$(terraform_state_path) elb_addr)
-sb_db_host = $(shell terraform output -state=${terraform_state_path} db_host)
-sb_db_user = $(shell echo $$SB_DB_USER)
-sb_db_pwd = $(shell echo $$SB_DB_PWD)
-sb_db_port = $(shell echo $$SB_DB_PORT)
-sb_db_database = $(shell echo $$SB_DB_DATABASE)
-cur_dir = $(shell pwd)
 git_branch_name = $(shell echo `branch_name=$$(git symbolic-ref -q HEAD) && \
 	branch_name=$${branch_name\#\#refs/heads/} && \
 	branch_name=$${branch_name:-unamed_branch} && \
 	echo $$branch_name`)
 git_sha = $(shell echo `git rev-parse --short HEAD`)
-terraform_state_path = deploy/terraform.tfstate
-terraform_plan_path = deploy/plan
+server_image_name = $(subst https://,,$(shell terraform output -state=$(terraform_state_path) registry))
+server_image_version = $(git_branch_name)-$(git_sha)
+server_image_with_version = $(server_image_name):$(server_image_version)
+server_container_port = 8000
+registry_hostname = 055309148068.dkr.ecr.us-east-1.amazonaws.com
+aws_ecr_login_cmd = aws ecr get-login-password | docker login --username AWS --password-stdin $(registry_hostname);
+sb_server_host = $(shell terraform output -state=$(terraform_state_path) elb_addr)
+sb_db_host = $(shell terraform output -state=${terraform_state_path} db_host)
+cur_dir = $(shell pwd)
+terraform_state_path = terraform.tfstate
+terraform_plan_path = plan
 
 # shortcut to merge dev branch to master branch
 git-merge-dev:
@@ -42,30 +37,35 @@ show-loc:
 
 # login to docker registry on AWS ECS with AWS command line library
 aws-docker-login:
-	$(ecr_get_login)
+	$(setup_prod_env) \
+	$(aws_ecr_login_cmd)
 
 # build the base Golang image
 build-base: $(base_dockerfile)
+	$(setup_prod_env) \
 	docker build -t $(simple_base_image_name) - < $(base_dockerfile)
 
 # build the server image
 build-server: $(server_dockerfile)
+	$(setup_prod_env) \
 	docker build -f $(server_dockerfile) -t $(server_program_name):latest .
 
 # push the server image to AWS ECS registry
 push-server:
-	docker tag $(server_program_name):latest $(server_image_with_version)
-	docker push $(server_image_name):latest
-	docker push $(server_image_with_version)
+	$(setup_prod_env) \
+	docker tag $(server_program_name):latest $(server_image_with_version); \
+	docker push $(server_image_name):latest; \
+	docker push $(server_image_with_version);
 
 # run the server in local Docker container
 run-server-local:
+	$(setup_prod_env) \
 	docker run -it --rm \
 	--name $(server_program_name) \
 	-p $(server_container_port):$(server_container_port) \
-	-e "AWS_ACCESS_KEY_ID=$(aws_access_key_id)" \
-	-e "AWS_SECRET_ACCESS_KEY=$(aws_secret_access_key)" \
-	-e "SB_SERVER_HOST=localhost" \
+	-e "AWS_ACCESS_KEY_ID=$$AWS_ACCESS_KEY_ID" \
+	-e "AWS_SECRET_ACCESS_KEY=$$AWS_SECRET_ACCESS_KEY" \
+	-e "SB_SERVER_HOST=$(sb_server_host)" \
 	-e "SB_DB_USER=$$SB_DB_USER" \
 	-e "SB_DB_PWD=$$SB_DB_PWD" \
 	-e "SB_DB_HOST=$$SB_DB_HOST" \
@@ -80,7 +80,7 @@ build-and-run-server: build-server run-server-local
 # build the server and excute the Golang installed command of server program
 build-and-run-server-ondisk:
 	go build .
-	go install ./$(server_program_name)
+	go install ./$(server_program_name);
 	$(server_program_name)
 
 # run Go build and install for the client application
@@ -126,14 +126,27 @@ build: build-base build-server build-client
 
 # deploy infrastructure on AWS
 deploy-infra:
-	terraform plan -state=${terraform_state_path} -out=${terraform_plan_path} -var "SB_SERVER_IMAGE_VERSION=${server_image_version}" deploy
-	terraform apply -state=${terraform_state_path} ${terraform_plan_path}
+	$(setup_prod_env) \
+	cd deploy; \
+	terraform init; \
+	terraform get; \
+	terraform apply -backup=-;
+
+# refresh infra status from cloud
+refresh-infra:
+	$(setup_prod_env) \
+	cd deploy; \
+	terraform init; \
+	terraform get; \
+	terraform refresh -backup=-;	
 
 # teardown infrastructure that deployed on AWS
 teardown-infra:
-	terraform plan -state=${terraform_state_path} -out=${terraform_plan_path} -var "SB_SERVER_IMAGE_VERSION=${server_image_version}" -destroy deploy
-	terraform destroy -state=${terraform_state_path} -var "SB_SERVER_IMAGE_VERSION=${server_image_version}" deploy
+	$(setup_prod_env) \
+	cd deploy; \
+	terraform destroy
 
 # show infrastructure status
 show-infra-status:
+	$(setup_prod_env) \
 	terraform show ${terraform_state_path}

@@ -6,4 +6,6 @@ test-target*/
 setup-env.sh
 *.tfstate
 *.tfstate.backup
-deploy/plan
+deploy/.terraform*
+envs/*
+!envs/example.Makefile

@@ -2,7 +2,7 @@
 provider "aws" {
     access_key = "${var.AWS_ACCESS_KEY_ID}"
     secret_key = "${var.AWS_SECRET_ACCESS_KEY}"
-    region     = "${var.region}"
+    region     = "${var.AWS_DEFAULT_REGION}"
 }
 
 resource "aws_security_group" "sb_server_ports" {
@@ -92,10 +92,6 @@ resource "aws_security_group" "sb_server_ports" {
         protocol = "tcp"
         cidr_blocks = ["0.0.0.0/0"]
     }
-
-    tags {
-        Name = "${var.project_name}"
-    }
 }
 
 // diffrenet nameing due to convention on AWS documentation
@@ -118,13 +114,13 @@ resource "aws_iam_policy_attachment" "ecs_instance_attatch" {
 
 resource "aws_iam_instance_profile" "ecs_instance_profile" {
     name = "ecs_instance_profile"
-    roles = ["${aws_iam_role.ecsInstanceRole.name}"]
+    role = "${aws_iam_role.ecsInstanceRole.name}"
 }
 
 resource "aws_launch_configuration" "as_conf" {
     name = "${var.project_name}-conf"
     image_id = "ami-2b3b6041"
-    instance_type = "${server_instance_type}"
+    instance_type = "${var.server_instance_type}"
     iam_instance_profile = "${aws_iam_instance_profile.ecs_instance_profile.name}"
     key_name = "${var.key_name}"
     security_groups = ["${aws_security_group.sb_server_ports.id}"]
@@ -132,7 +128,7 @@ resource "aws_launch_configuration" "as_conf" {
 }
 
 resource "aws_elb" "elb" {
-    name = "${project_name}-elb"
+    name = "${var.project_name}-elb"
     availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1e"]
     security_groups = ["${aws_security_group.sb_server_ports.id}"]
 
@@ -163,8 +159,8 @@ resource "aws_elb" "elb" {
     connection_draining = true
     connection_draining_timeout = 400
 
-    tags {
-        Name = "${project_name}-elb"
+    tags = {
+        Name = "${var.project_name}-elb"
     }
 }
 
@@ -173,7 +169,7 @@ output "elb_addr" {
 }
 
 resource "aws_autoscaling_group" "asg" {
-    name = "${project_name}-asg"
+    name = "${var.project_name}-asg"
     availability_zones = ["us-east-1a"]
     max_size = "${var.autoscale_gropu_max_size}"
     min_size = "${var.autoscale_group_min_size}"
@@ -190,7 +186,7 @@ resource "aws_autoscaling_group" "asg" {
 }
 
 resource "aws_s3_bucket" "sb_server_ecs_instance_data" {
-    bucket = "${project_name}-ecs-instance-data"
+    bucket = "${var.project_name}-ecs-instance-data"
     acl = "private"
 }
 
@@ -202,23 +198,33 @@ resource "aws_s3_bucket_object" "ecs_config" {
 }
 
 resource "aws_db_instance" "sb_server_db" {
+    identifier           = "syncbox"
     allocated_storage    = "${var.db_instance_storage_size}"
     engine               = "mysql"
-    engine_version       = "5.6.27"
+    engine_version       = "8.0.20"
     instance_class       = "${var.db_instance_class}"
-    name                 = "${project_name}-db"
+    name                 = "${var.SB_DB_DATABASE}"
     username             = "${var.DB_MASTER_USERNAME}"
     password             = "${var.DB_MASTER_PWD}"
-    db_subnet_group_name = "default"
-    parameter_group_name = "default.mysql5.6"
+    final_snapshot_identifier = "final-snapshot"
+    parameter_group_name = "default.mysql8.0"
+    publicly_accessible  = true
+    multi_az             = false
+    apply_immediately    = true
+    skip_final_snapshot  = true
+    backup_retention_period = 1
     vpc_security_group_ids = ["${aws_security_group.sb_server_ports.id}"]
 
-    tags {
+    tags = {
         Name = "${var.project_name}"
     }
 
     provisioner "local-exec" {
-        command = "mysql -h ${aws_db_instance.sb_server_db.address} -P${var.SB_DB_PORT} -u${var.DB_MASTER_USERNAME} -p${var.DB_MASTER_PWD} -e  \"GRANT ALL ON ${SB_DB_DATABASE}.* TO '${SB_DB_USER}'@'%' IDENTIFIED BY '${SB_DB_PWD}'\""
+        command = "mysql -h ${aws_db_instance.sb_server_db.address} -P${var.SB_DB_PORT} -u${var.DB_MASTER_USERNAME} -p${var.DB_MASTER_PWD} -e  \"CREATE USER '${var.SB_DB_USER}'@'%' IDENTIFIED BY '${var.SB_DB_PWD}'\""
+    }
+
+    provisioner "local-exec" {
+        command = "mysql -h ${aws_db_instance.sb_server_db.address} -P${var.SB_DB_PORT} -u${var.DB_MASTER_USERNAME} -p${var.DB_MASTER_PWD} -e  \"GRANT ALL ON ${var.SB_DB_DATABASE}.* TO '${var.SB_DB_USER}'@'%'\""
     }
 }
 
@@ -233,17 +239,17 @@ resource "aws_ecs_cluster" "sb_server_cluster" {
 resource "aws_ecr_repository" "registry" {
     name = "${var.project_name}"
 
-    provisioner "local-exec" {
-        command = "`aws ecr get-login --region ${var.region}`"
-    }
+    # provisioner "local-exec" {
+    #     command = "`aws ecr get-login --region ${var.region}`"
+    # }
 
-    provisioner "local-exec" {
-        command = "docker tag sb-server:latest ${replace("${aws_ecr_repository.registry.repository_url}", "https://", "")}:${var.SB_SERVER_IMAGE_VERSION}"
-    }
+    # provisioner "local-exec" {
+    #     command = "docker tag sb-server:latest ${replace("${aws_ecr_repository.registry.repository_url}", "https://", "")}:${var.SB_SERVER_IMAGE_VERSION}"
+    # }
 
-    provisioner "local-exec" {
-        command = "docker push ${replace("${aws_ecr_repository.registry.repository_url}", "https://", "")}:${var.SB_SERVER_IMAGE_VERSION}"
-    }
+    # provisioner "local-exec" {
+    #     command = "docker push ${replace("${aws_ecr_repository.registry.repository_url}", "https://", "")}:${var.SB_SERVER_IMAGE_VERSION}"
+    # }
 }
 
 output "registry" {
@@ -280,7 +286,7 @@ resource "aws_iam_user_policy" "sb_server_user_policy" {
 resource "template_file" "sb_server_task_template" {
     template = "${file("${path.module}/config/sb-server-task-def.tpl.json")}"
 
-    vars {
+    vars = {
         aws_access_key_id = "${aws_iam_access_key.sb_server_key.id}"
         aws_secret_access_key = "${aws_iam_access_key.sb_server_key.secret}"
         sb_server_host = "${aws_elb.elb.dns_name}"

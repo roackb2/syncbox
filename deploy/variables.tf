@@ -1,4 +1,5 @@
 // variables that ingress environment variables
+variable "AWS_DEFAULT_REGION" {}
 variable "AWS_ACCESS_KEY_ID" {}
 variable "AWS_SECRET_ACCESS_KEY" {}
 variable "DB_MASTER_USERNAME" {}
@@ -12,9 +13,6 @@ variable "SB_DB_DATABASE" {}
 // variables for configuration flexibility
 variable "project_name" {
     default = "sb-server"
-}
-variable "region" {
-    default = "us-east-1"
 }
 variable "key_name" {
     default = "sb-server"
