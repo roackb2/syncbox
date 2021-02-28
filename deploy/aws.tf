@@ -119,7 +119,7 @@ resource "aws_iam_instance_profile" "ecs_instance_profile" {
 
 resource "aws_launch_configuration" "as_conf" {
     name = "${var.project_name}-conf"
-    image_id = "ami-2b3b6041"
+    image_id = "ami-0454831ad6419901b"
     instance_type = "${var.server_instance_type}"
     iam_instance_profile = "${aws_iam_instance_profile.ecs_instance_profile.name}"
     key_name = "${var.key_name}"
@@ -129,7 +129,7 @@ resource "aws_launch_configuration" "as_conf" {
 
 resource "aws_elb" "elb" {
     name = "${var.project_name}-elb"
-    availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c", "us-east-1e"]
+    availability_zones = ["${var.AWS_DEFAULT_REGION}a", "${var.AWS_DEFAULT_REGION}c", "${var.AWS_DEFAULT_REGION}d"]
     security_groups = ["${aws_security_group.sb_server_ports.id}"]
 
     listener {
@@ -170,7 +170,7 @@ output "elb_addr" {
 
 resource "aws_autoscaling_group" "asg" {
     name = "${var.project_name}-asg"
-    availability_zones = ["us-east-1a"]
+    availability_zones = ["${var.AWS_DEFAULT_REGION}a", "${var.AWS_DEFAULT_REGION}c", "${var.AWS_DEFAULT_REGION}d"]
     max_size = "${var.autoscale_gropu_max_size}"
     min_size = "${var.autoscale_group_min_size}"
     health_check_grace_period = 300
