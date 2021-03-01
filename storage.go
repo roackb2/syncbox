@@ -15,9 +15,9 @@ import (
 )
 
 // constants for aws services
-const (
-	AWSDefaultRegion = "us-east-1"
-	S3BucketPrefix   = "syncbox-user-bucket-"
+var (
+	AWSDefaultRegion = os.Getenv("AWS_DEFAULT_REGION")
+	S3BucketPrefix   = os.Getenv("SB_STORAGE_BUCHET")
 )
 
 // Storage structure that use AWS S3

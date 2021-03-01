@@ -10,15 +10,13 @@ git_branch_name = $(shell echo `branch_name=$$(git symbolic-ref -q HEAD) && \
 	branch_name=$${branch_name:-unamed_branch} && \
 	echo $$branch_name`)
 git_sha = $(shell echo `git rev-parse --short HEAD`)
-server_image_name = $(subst https://,,$(shell terraform output -state=$(terraform_state_path) registry))
+server_image_name = $(server_program_name)
 server_image_version = $(git_branch_name)-$(git_sha)
 server_image_with_version = $(server_image_name):$(server_image_version)
 server_container_port = 8000
-registry_hostname = 055309148068.dkr.ecr.us-east-1.amazonaws.com
-aws_ecr_login_cmd = aws ecr get-login-password | docker login --username AWS --password-stdin $(registry_hostname);
-sb_server_host = $(shell terraform output -state=$(terraform_state_path) elb_addr)
 sb_db_host = $(shell terraform output -state=${terraform_state_path} db_host)
 cur_dir = $(shell pwd)
+connect_db_command := mysql -h $$SB_DB_HOST --port=$$SB_DB_PORT --user=$$SB_DB_USER --password=$$SB_DB_PWD --database=$$SB_DB_DATABASE
 terraform_state_path = terraform.tfstate
 terraform_plan_path = plan
 
@@ -34,11 +32,6 @@ git-merge-dev:
 # show line of code, if user has cloc installed
 show-loc:
 	cloc . --exclude-dir=vendor,.idea,Godeps,test-target,test-target2,test-target-backup
-
-# login to docker registry on AWS ECS with AWS command line library
-aws-docker-login:
-	$(setup_prod_env) \
-	$(aws_ecr_login_cmd)
 
 # build the base Golang image
 build-base: $(base_dockerfile)
@@ -63,14 +56,15 @@ run-server-local:
 	docker run -it --rm \
 	--name $(server_program_name) \
 	-p $(server_container_port):$(server_container_port) \
+	-e "AWS_DEFAULT_REGION=$$AWS_DEFAULT_REGION" \
 	-e "AWS_ACCESS_KEY_ID=$$AWS_ACCESS_KEY_ID" \
 	-e "AWS_SECRET_ACCESS_KEY=$$AWS_SECRET_ACCESS_KEY" \
-	-e "SB_SERVER_HOST=$(sb_server_host)" \
 	-e "SB_DB_USER=$$SB_DB_USER" \
 	-e "SB_DB_PWD=$$SB_DB_PWD" \
 	-e "SB_DB_HOST=$$SB_DB_HOST" \
 	-e "SB_DB_PORT=$$SB_DB_PORT" \
 	-e "SB_DB_DATABASE=$$SB_DB_DATABASE" \
+	-e "SB_STORAGE_BUCHET"=$$SB_STORAGE_BUCHET \
 	$(server_program_name):latest \
 	$(server_program_name)
 
@@ -102,15 +96,23 @@ build-client-for-windows-amd64:
 
 # run the client installed command and connects to remote server
 run-client:
-	SB_SERVER_HOST=$(sb_server_host) $(client_program_name)
+	$(setup_prod_env) \
+	$(client_program_name)
 
 # run the client installed command and connects to local server
 run-client-with-local-server:
-	SB_SERVER_HOST=localhost $(client_program_name)
+	SB_SERVER_HOST=localhost \
+	$(client_program_name)
 
 # run the second client and watches another directory
 run-second-client:
-	SB_SERVER_HOST=$(sb_server_host) $(client_program_name) --root_dir=$(cur_dir)/test-target2
+	$(setup_prod_env) \
+	$(client_program_name) --root_dir=$(cur_dir)/test-target2
+
+# connect to production database
+connnect-prod-db:
+	$(setup_prod_env) \
+	$(connect_db_command)
 
 # build and install client command and run the client command
 build-and-run-client: build-client run-client
