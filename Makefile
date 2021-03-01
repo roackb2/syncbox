@@ -10,12 +10,13 @@ git_branch_name = $(shell echo `branch_name=$$(git symbolic-ref -q HEAD) && \
 	branch_name=$${branch_name:-unamed_branch} && \
 	echo $$branch_name`)
 git_sha = $(shell echo `git rev-parse --short HEAD`)
-server_image_name = $(server_program_name)
+server_image_name = $$AWS_REGISTRY_HOSTNAME/$(server_program_name)
 server_image_version = $(git_branch_name)-$(git_sha)
 server_image_with_version = $(server_image_name):$(server_image_version)
 server_container_port = 8000
 sb_db_host = $(shell terraform output -state=${terraform_state_path} db_host)
 cur_dir = $(shell pwd)
+aws_ecr_login_cmd = aws ecr get-login-password | docker login --username AWS --password-stdin $$AWS_REGISTRY_HOSTNAME;
 connect_db_command := mysql -h $$SB_DB_HOST --port=$$SB_DB_PORT --user=$$SB_DB_USER --password=$$SB_DB_PWD --database=$$SB_DB_DATABASE
 terraform_state_path = terraform.tfstate
 terraform_plan_path = plan
@@ -46,6 +47,7 @@ build-server: $(server_dockerfile)
 # push the server image to AWS ECS registry
 push-server:
 	$(setup_prod_env) \
+	$(aws_ecr_login_cmd) \
 	docker tag $(server_program_name):latest $(server_image_with_version); \
 	docker push $(server_image_name):latest; \
 	docker push $(server_image_with_version);
