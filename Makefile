@@ -104,12 +104,12 @@ run-client:
 # run the client installed command and connects to local server
 run-client-with-local-server:
 	SB_SERVER_HOST=localhost \
-	$(client_program_name)
+	$(client_program_name) --Username=hello --Password=world
 
 # run the second client and watches another directory
 run-second-client:
-	$(setup_prod_env) \
-	$(client_program_name) --root_dir=$(cur_dir)/test-target2
+	SB_SERVER_HOST=localhost \
+	$(client_program_name) --Username=hello --Password=world --root_dir=$(cur_dir)/test-target2
 
 # connect to production database
 connnect-prod-db:

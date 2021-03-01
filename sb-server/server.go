@@ -82,6 +82,7 @@ func (server *Server) HandleError(err error) {
 
 // ProcessIdentity implements the ConnectionHandler interface
 func (server *Server) ProcessIdentity(req *syncbox.Request, peer *syncbox.Peer, eHandler syncbox.ErrorHandler) {
+	server.LogDebug("New IdentityRequest for user: %v\n", peer.Username)
 	if peer.Username != "" && peer.RefGraph == nil {
 		rg, err := syncbox.NewRefGraph(peer.Username, peer.Password, server.DB)
 		if err != nil {
@@ -181,7 +182,9 @@ func (server *Server) ProcessDigest(req *syncbox.Request, peer *syncbox.Peer, eH
 			eHandler(err)
 		}
 		for addr, clientPeer := range server.Clients {
+			server.LogDebug("client addr: %v, username: %v\n", addr, clientPeer.Username)
 			if clientPeer.Username == peer.Username && addr != peer.Address {
+				server.LogDebug("sending digest request to peer: %v\n", addr)
 				res, innerErr := clientPeer.SendDigestRequest(syncbox.SyncboxServerUsername, syncbox.SyncboxServerPwd, syncbox.SyncboxServerDevice, dReq.Dir)
 				if innerErr != nil {
 					server.LogDebug("error on SendDigestRequest in ProcessDigest: %v\v", innerErr)

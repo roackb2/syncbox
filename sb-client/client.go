@@ -113,6 +113,10 @@ func (client *Client) Start() error {
 		client.LogDebug("error on dial: %v\n", err)
 		return err
 	}
+	if _, err := client.ClientConnector.Peer.SendIdentityRequest(client.Cmd.Username, client.Cmd.Password, client.Device); err != nil {
+		client.LogDebug("error on SendIdentityRequest: %v\n", err)
+		return err
+	}
 	errChan := make(chan error)
 	go func(errChan chan error) {
 		if err := client.Listen(client); err != nil {
